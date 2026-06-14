@@ -139,7 +139,7 @@ function configureTS(defaults, isJs) {
   defaults.setExtraLibs(baseExtraLibs);
   defaults.setEagerModelSync(true);
 }
-const langFor = (p) => (p.endsWith(".js") ? "javascript" : "typescript");
+const langFor = (p) => (p.endsWith(".js") ? "javascript" : p.endsWith(".json") ? "json" : p.endsWith(".md") ? "markdown" : "typescript");
 const uriFor = (path) => monaco.Uri.parse("file:///" + proj.id + "/" + path);
 
 function disposeModels() { for (const m of models.values()) m.dispose(); models.clear(); }
@@ -161,6 +161,9 @@ function openFile(path) {
   proj.active = path;
   if (!proj.openTabs) proj.openTabs = [];
   if (!proj.openTabs.includes(path)) proj.openTabs.push(path);
+  // a supporting/types file (e.g. types/*.d.ts) is hidden unless the toggle is on —
+  // turn it on so navigating to one actually reveals it in the tree
+  if (isAux(path) && !showAux) setShowAux(true);
   // reveal in the Explorer: expand the file's ancestor folders so its row shows
   collapsed.delete("__ROOT__");
   { const parts = path.split("/"); let acc = ""; for (let i = 0; i < parts.length - 1; i++) { acc = acc ? acc + "/" + parts[i] : parts[i]; collapsed.delete(acc); } }
@@ -202,6 +205,7 @@ function renderFtabs() {
 const collapsed = new Set(); // folder paths the user has collapsed (per session)
 const isAux = (path) => !!(proj && proj.aux && proj.aux.includes(path));
 let showAux = localStorage.getItem("lb-ide:showAux") === "1";
+function setShowAux(v) { showAux = !!v; localStorage.setItem("lb-ide:showAux", showAux ? "1" : "0"); const b = $("toggleAux"); if (b) b.classList.toggle("on", showAux); renderFiles(); }
 
 // Build a nested tree from file paths + any explicitly-created empty folders.
 // includeFn filters which files appear (used to hide supporting/aux files).
@@ -545,25 +549,32 @@ let esbuildReady = null;
 function initEsbuild() { if (!esbuildReady) esbuildReady = esbuild.initialize({ wasmURL: "esbuild.wasm" }); return esbuildReady; }
 async function ensureInjectBundle() { if (injectBundle == null) injectBundle = await fetch("lb-inject-bundled.js").then((r) => r.text()); return injectBundle; }
 
-function buildPlugins(files) {
+function buildPlugins(files, cfg = {}) {
   const dir = (p) => { const i = p.lastIndexOf("/"); return i < 0 ? "" : p.slice(0, i); };
   const join = (base, rel) => { const parts = (base + "/" + rel).split("/"); const out = []; for (const s of parts) { if (s === "" || s === ".") continue; if (s === "..") out.pop(); else out.push(s); } return out.join("/"); };
   const norm = (p) => p.replace(/^\/+/, "");
   const TYPES = "@wunk/lb-script-api-types/types/";
+  const jvmRewrite = cfg.javaTypeRewrite !== false;
+  const inlineInject = cfg.inlineLbInject !== false;
   return {
     name: "lb",
     setup(build) {
-      // JVM-type value import → Java.type("<fqcn>")  (matches the template build)
-      build.onResolve({ filter: /^@wunk\/lb-script-api-types\/types\// }, (a) => ({ path: a.path, namespace: "jvm" }));
-      build.onLoad({ filter: /.*/, namespace: "jvm" }, (a) => {
-        const fqcn = a.path.slice(TYPES.length).replace(/\//g, "."); const name = fqcn.slice(fqcn.lastIndexOf(".") + 1);
-        return { contents: `export const ${name} = Java.type(${JSON.stringify(fqcn)});`, loader: "js" };
-      });
+      // JVM-type value import → Java.type("<fqcn>")  (matches the template build).
+      // When disabled in the config, leave the import external (raw).
+      if (jvmRewrite) {
+        build.onResolve({ filter: /^@wunk\/lb-script-api-types\/types\// }, (a) => ({ path: a.path, namespace: "jvm" }));
+        build.onLoad({ filter: /.*/, namespace: "jvm" }, (a) => {
+          const fqcn = a.path.slice(TYPES.length).replace(/\//g, "."); const name = fqcn.slice(fqcn.lastIndexOf(".") + 1);
+          return { contents: `export const ${name} = Java.type(${JSON.stringify(fqcn)});`, loader: "js" };
+        });
+      } else build.onResolve({ filter: /^@wunk\/lb-script-api-types\/types\// }, (a) => ({ path: a.path, external: true }));
       // any other @wunk/* import is types-only → empty
       build.onResolve({ filter: /^@wunk\// }, (a) => ({ path: a.path, namespace: "empty" }));
-      // lb-inject → inlined runtime + re-export of the global it defines
-      build.onResolve({ filter: /^lb-inject$/ }, () => ({ path: "lb-inject", namespace: "lbinject" }));
-      build.onLoad({ filter: /.*/, namespace: "lbinject" }, () => ({ contents: "globalThis.__nfLibConsumed = true;\n" + (injectBundle || "") + "\nexport const Inject = globalThis.Inject;", loader: "js" }));
+      // lb-inject → inlined runtime + re-export of the global it defines (or external)
+      if (inlineInject) {
+        build.onResolve({ filter: /^lb-inject$/ }, () => ({ path: "lb-inject", namespace: "lbinject" }));
+        build.onLoad({ filter: /.*/, namespace: "lbinject" }, () => ({ contents: "globalThis.__nfLibConsumed = true;\n" + (injectBundle || "") + "\nexport const Inject = globalThis.Inject;", loader: "js" }));
+      } else build.onResolve({ filter: /^lb-inject$/ }, (a) => ({ path: a.path, external: true }));
       build.onLoad({ filter: /.*/, namespace: "empty" }, () => ({ contents: "", loader: "js" }));
       // project files
       build.onResolve({ filter: /.*/ }, (a) => {
@@ -578,19 +589,60 @@ function buildPlugins(files) {
 }
 const entryPoint = () => ("main.ts" in proj.files ? "main.ts" : "main.js" in proj.files ? "main.js" : Object.keys(proj.files)[0]);
 
+// ---- per-project build config (an editable lbbuild.config.json, like a normal
+// TS project's tsconfig). Absent → these defaults; present → merged over them. --
+const BUILD_FILE = "lbbuild.config.json";
+const DEFAULT_BUILD = {
+  entry: "",                 // "" → auto-detect (main.ts / main.js)
+  format: "esm",             // esm | iife | cjs
+  target: "es2022",          // es2017 … es2022 | esnext
+  minify: false,
+  sourcemap: false,          // false | true (=inline) | "inline" | "external"
+  keepNames: false,
+  treeShaking: true,
+  charset: "utf8",           // utf8 | ascii
+  define: {},                // { "FLAG": "true" }  (values are raw JS)
+  drop: [],                  // ["console","debugger"]
+  pure: [],                  // functions safe to drop if unused
+  banner: "",                // prepended to the output
+  footer: "",                // appended to the output
+  javaTypeRewrite: true,     // @wunk/.../types/* value import → Java.type("…")
+  inlineLbInject: true,      // inline the lb-inject runtime (else leave external)
+};
+// returns { config, error } — config is the parsed file (or proj.build, or {})
+function rawBuildConfig() {
+  if (proj && BUILD_FILE in proj.files) { try { return { config: JSON.parse(proj.files[BUILD_FILE]) }; } catch (e) { return { config: null, error: BUILD_FILE + ": " + e.message }; } }
+  return { config: (proj && proj.build) || {} };
+}
+const buildConfig = () => ({ ...DEFAULT_BUILD, ...(rawBuildConfig().config || {}) });
+function writeBuildConfig(cfg) { const json = JSON.stringify(cfg, null, 2) + "\n"; proj.files[BUILD_FILE] = json; if (!proj.aux) proj.aux = []; if (!proj.aux.includes(BUILD_FILE)) proj.aux.push(BUILD_FILE); const m = models.get(BUILD_FILE); if (m) m.setValue(json); scheduleSave(); }
+function ensureBuildConfigFile() { if (!(BUILD_FILE in proj.files)) writeBuildConfig({ ...DEFAULT_BUILD, ...(proj.build || {}) }); }
+function setBuildField(key, value) { const cur = { ...DEFAULT_BUILD, ...(rawBuildConfig().config || {}) }; cur[key] = value; writeBuildConfig(cur); }
+
 async function build() {
   $("build").disabled = true; setStatus("building…");
   try {
+    const { config, error } = rawBuildConfig();
+    if (error) { log("✗ " + error, "e"); setStatus("build failed"); return; }
+    const cfg = { ...DEFAULT_BUILD, ...(config || {}) };
     await initEsbuild();
-    if (Object.values(proj.files).some((c) => /from\s+["']lb-inject["']/.test(c))) await ensureInjectBundle();
-    const entry = entryPoint();
-    const minify = !!(proj.build && proj.build.minify);
-    const res = await esbuild.build({ entryPoints: [entry], bundle: true, format: "esm", target: "es2022", write: false, plugins: [buildPlugins(proj.files)], legalComments: "none", minify });
-    const code = res.outputFiles[0].text;
+    if (cfg.inlineLbInject !== false && Object.values(proj.files).some((c) => /from\s+["']lb-inject["']/.test(c))) await ensureInjectBundle();
+    const entry = cfg.entry && cfg.entry in proj.files ? cfg.entry : entryPoint();
+    const sourcemap = cfg.sourcemap === true ? "inline" : (cfg.sourcemap || false);
+    const res = await esbuild.build({
+      entryPoints: [entry], bundle: true, write: false, legalComments: "none",
+      format: cfg.format || "esm", target: cfg.target || "es2022", minify: !!cfg.minify,
+      sourcemap, keepNames: !!cfg.keepNames, treeShaking: cfg.treeShaking !== false,
+      charset: cfg.charset || "utf8", define: cfg.define || {}, drop: cfg.drop || [], pure: cfg.pure || [],
+      banner: cfg.banner ? { js: cfg.banner } : undefined, footer: cfg.footer ? { js: cfg.footer } : undefined,
+      plugins: [buildPlugins(proj.files, cfg)],
+    });
+    const outJs = res.outputFiles.find((f) => !f.path.endsWith(".map")) || res.outputFiles[0];
+    const code = outJs.text;
     const built = { name: entry.replace(/\.(ts|js)$/, "") + ".mjs", code };
     builds.set(proj.id, built);
     syncDownloadBtn();
-    log("✓ built " + built.name + " — " + code.length + " bytes", "s");
+    log("✓ built " + built.name + " — " + code.length + " bytes" + (cfg.minify ? " (minified)" : ""), "s");
     for (const w of res.warnings) log("warn: " + w.text, "d");
     setStatus("build ok");
   } catch (e) {
@@ -835,11 +887,14 @@ require(["vs/editor/editor.main"], async () => {
     const b = currentBuild(); if (b) { const sep = document.createElement("div"); sep.className = "sep"; el.appendChild(sep); el.appendChild(popItem("Built .mjs", download, b.name)); }
   });
   $("buildCfg").onclick = () => showPop($("buildCfg"), (el) => {
-    const lbl = document.createElement("label"); lbl.className = "item";
-    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !!(proj.build && proj.build.minify);
-    cb.onchange = () => { proj.build = proj.build || {}; proj.build.minify = cb.checked; scheduleSave(); };
-    lbl.appendChild(cb); lbl.appendChild(document.createTextNode("Minify output")); el.appendChild(lbl);
-    const note = document.createElement("div"); note.className = "item"; note.style.cursor = "default"; note.style.fontSize = "11px"; note.style.color = "var(--fgdim)"; note.textContent = "applies to the next build · per project"; el.appendChild(note);
+    const cfg = buildConfig();
+    const toggle = (key, label) => { const lbl = document.createElement("label"); lbl.className = "item"; const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !!cfg[key]; cb.onchange = () => setBuildField(key, cb.checked); lbl.appendChild(cb); lbl.appendChild(document.createTextNode(label)); return lbl; };
+    el.appendChild(toggle("minify", "Minify output"));
+    el.appendChild(toggle("sourcemap", "Inline source map"));
+    el.appendChild(toggle("keepNames", "Keep names"));
+    const sep = document.createElement("div"); sep.className = "sep"; el.appendChild(sep);
+    el.appendChild(popItem("Edit build config…", () => { ensureBuildConfigFile(); if (!showAux) setShowAux(true); openFile(BUILD_FILE); }, "lbbuild.config.json"));
+    const note = document.createElement("div"); note.className = "item"; note.style.cssText = "cursor:default;font-size:11px;color:var(--fgdim)"; note.textContent = "target " + (cfg.target || "es2022") + " · " + (cfg.format || "esm"); el.appendChild(note);
   });
   $("importFiles").onclick = () => { const inp = $("fileInput"); inp.value = ""; inp.onchange = () => importFiles(inp.files); inp.click(); };
   for (const id of ["editor", "side"]) { const el = $(id); el.addEventListener("dragover", (e) => { e.preventDefault(); el.classList.add("dropping"); }); el.addEventListener("dragleave", (e) => { if (e.target === el) el.classList.remove("dropping"); }); el.addEventListener("drop", (e) => { e.preventDefault(); el.classList.remove("dropping"); if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) importFiles(e.dataTransfer.files); }); }
@@ -925,9 +980,8 @@ require(["vs/editor/editor.main"], async () => {
   $("addFile").onclick = () => addFileAt("");
   $("addFolder").onclick = () => addFolderAt("");
   $("collapseAll").onclick = () => { for (const d of allDirPaths()) collapsed.add(d); renderFiles(); };
-  const syncAuxBtn = () => $("toggleAux").classList.toggle("on", showAux);
-  $("toggleAux").onclick = () => { showAux = !showAux; localStorage.setItem("lb-ide:showAux", showAux ? "1" : "0"); syncAuxBtn(); renderFiles(); };
-  syncAuxBtn();
+  $("toggleAux").onclick = () => setShowAux(!showAux);
+  $("toggleAux").classList.toggle("on", showAux);
   $("rename").onclick = async () => { const n = prompt("Project name:", proj.name); if (!n) return; proj.name = n; await saveProject(); renderTabs(); };
   $("share").onclick = shareProject;
 
@@ -948,7 +1002,7 @@ require(["vs/editor/editor.main"], async () => {
     closeTab: (path) => closeTab(path),
     auxFiles: () => (proj.aux || []).slice(),
     treeLabels: () => [...document.querySelectorAll("#files .tv-row .nm")].map((n) => n.textContent),
-    setShowAux: (v) => { showAux = !!v; localStorage.setItem("lb-ide:showAux", showAux ? "1" : "0"); $("toggleAux").classList.toggle("on", showAux); renderFiles(); },
+    setShowAux: (v) => setShowAux(v),
     diagnosticsFor: async (path) => { const m = ensureModel(path); const gw = await monaco.languages.typescript.getTypeScriptWorker(); const c = await gw(m.uri); const u = m.uri.toString(); const ds = [...(await c.getSyntacticDiagnostics(u)), ...(await c.getSemanticDiagnostics(u))]; return ds.map((d) => ({ code: d.code })); },
     createProject: (cid, exId) => createProject(cid, exId),
     switchProject: (id) => loadProject(id),
@@ -965,6 +1019,8 @@ require(["vs/editor/editor.main"], async () => {
     activeRowVisible: () => { const r = $("files").querySelector(".tv-row.active"); if (!r) return false; const cr = r.getBoundingClientRect(), pr = $("side").getBoundingClientRect(); return cr.top >= pr.top - 1 && cr.bottom <= pr.bottom + 1; },
     format: async () => { await formatActive(); return editor.getModel().getValue(); },
     setMinify: (v) => { proj.build = { ...(proj.build || {}), minify: !!v }; },
+    setBuildConfig: (obj) => writeBuildConfig({ ...DEFAULT_BUILD, ...obj }),
+    getBuildConfig: () => buildConfig(),
     exportZipBytes: () => { const enc = new TextEncoder(); return Array.from(makeZip(Object.keys(proj.files).sort().map((n) => ({ name: n, data: enc.encode(proj.files[n]) })))); },
     importText: (name, content) => { const p = importOneFile(name, content); openFile(p); return p; },
     downloadBtnDisabled: () => $("download").disabled,

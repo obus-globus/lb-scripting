@@ -213,7 +213,19 @@ ok(/lb-inject\/index\.d\.ts$/.test(gtd.libUri), "lb-inject import → jumps into
 ok(gtd.libRO === true, "library definition view is read-only");
 ok(gtd.sameUri.endsWith("/main.ts") && gtd.sameLine === gtd.declLine, "same-file symbol → jumps to its declaration (line " + gtd.declLine + ")");
 
+console.log("\n[8] modifiable build config (lbbuild.config.json)");
+await boot();
+await page.evaluate(() => window.__ide.createProject("default-ts"));
+await page.evaluate(() => window.__ide.setActiveValue('declare const FLAG: string;\nregisterScript({ name: "T", version: "1.0.0", authors: ["x"] });\nClient.displayChatMessage(FLAG);\n'));
+const plainBuild = await page.evaluate(async () => (await window.__ide.build()).code);
+await page.evaluate(() => window.__ide.setBuildConfig({ minify: true, banner: "// LBIDE-BANNER\n", define: { FLAG: '"on"' } }));
+const cfgBuild = await page.evaluate(async () => (await window.__ide.build()).code);
+ok(!plainBuild.includes("LBIDE-BANNER") && cfgBuild.includes("LBIDE-BANNER"), "banner from config is applied to the build");
+ok(cfgBuild.includes('"on"'), "define from config is inlined (FLAG → \"on\")");
+ok((await page.evaluate(() => window.__ide.auxFiles())).includes("lbbuild.config.json"), "config persists as a supporting file (lbbuild.config.json)");
+ok((await page.evaluate(() => window.__ide.getBuildConfig().target)) === "es2022", "config exposes the esbuild knobs (target default es2022)");
+
 await browser.close();
 server.close();
 if (fails.length) { console.log("\nFAIL (" + fails.length + "):"); for (const f of fails) console.log("  - " + f); process.exit(1); }
-console.log("\nPASS — tabs + templates + build + isolation + persistence + share + themes + gotodef.");
+console.log("\nPASS — tabs + templates + build + isolation + persistence + share + themes + gotodef + buildcfg.");
