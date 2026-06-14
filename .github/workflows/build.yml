@@ -13,6 +13,18 @@ on:
   workflow_dispatch:
 
 jobs:
+  lb-inject:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/lb-inject
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --no-audit --no-fund
+      - run: npm run typecheck   # JS typecheck only; the Java agent build needs a JDK (dist/ is committed)
+
   build-host:
     runs-on: ubuntu-latest
     defaults:

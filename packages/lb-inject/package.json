@@ -1,0 +1,12 @@
+{
+  "name": "lb-inject",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Runtime bytecode injection for LiquidBounce GraalJS scripts.",
+  "scripts": {
+    "typecheck": "tsc -p jsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.4"
+  }
+}

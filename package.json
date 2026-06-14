@@ -5,6 +5,7 @@
   "license": "MIT",
   "scripts": {
     "install:all": "npm --prefix apps/editor install && npm --prefix apps/host install",
+    "sync:lb-inject": "node scripts/sync-lb-inject.mjs",
     "verify": "npm --prefix apps/editor run verify",
     "build:editor": "npm --prefix apps/editor run build-dist",
     "build:host": "npm --prefix apps/host run build",
