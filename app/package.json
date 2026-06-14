@@ -7,6 +7,7 @@
   "scripts": {
     "gen-typings": "node scripts/gen-typings.mjs",
     "postinstall": "node scripts/gen-typings.mjs",
+    "build-dist": "node scripts/build-dist.mjs",
     "serve": "node serve.mjs",
     "verify": "node verify.mjs"
   },

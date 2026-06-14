@@ -2,15 +2,19 @@
 // @wunk/lb-script-api-types + esbuild-wasm build → downloadable .mjs, with
 // per-session IndexedDB persistence. No backend; each session is isolated.
 
+// Absolute base of this app (so it works under a subpath like /lb-ide/ behind a
+// reverse proxy, not just at the origin root). Ends in a trailing slash.
+const BASE = new URL(".", document.baseURI).href;
+
 // ---- Monaco AMD workers need an absolute baseUrl under a plain script tag ----
 self.MonacoEnvironment = {
   getWorkerUrl: () =>
     "data:text/javascript;charset=utf-8," +
     encodeURIComponent(
-      `self.MonacoEnvironment={baseUrl:'${location.origin}/'};importScripts('${location.origin}/vs/base/worker/workerMain.js');`,
+      `self.MonacoEnvironment={baseUrl:'${BASE}'};importScripts('${BASE}vs/base/worker/workerMain.js');`,
     ),
 };
-require.config({ paths: { vs: "vs" } });
+require.config({ paths: { vs: BASE + "vs" } });
 
 // ---------------------------------------------------------------- persistence
 const DB = "lb-ide";
