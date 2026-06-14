@@ -281,26 +281,43 @@ async function hydrateTabNames() {
     if (p && spans[i]) spans[i].firstChild.textContent = p.name;
   }
 }
+function hideTemplateMenu() { $("tmplMenu").style.display = "none"; $("tmplSub").style.display = "none"; }
+// Cascading picker: categories on the left, their items fly out to the side.
 function showTemplateMenu() {
-  const menu = $("tmplMenu"); menu.innerHTML = "";
-  const addItem = (title, sub, indent, onClick) => {
-    const item = document.createElement("div"); item.className = "item" + (indent ? " sub" : "");
-    item.innerHTML = "<b>" + title + "</b>" + (sub ? "<span>" + sub + "</span>" : "");
-    item.onclick = () => { menu.style.display = "none"; onClick(); };
-    menu.appendChild(item);
+  const menu = $("tmplMenu"), sub = $("tmplSub"); menu.innerHTML = ""; sub.style.display = "none";
+  const openSub = (cat, rowEl) => {
+    [...menu.querySelectorAll(".row")].forEach((r) => r.classList.remove("active"));
+    rowEl.classList.add("active");
+    sub.innerHTML = "";
+    const add = (title, desc, onClick) => {
+      const it = document.createElement("div"); it.className = "item";
+      it.innerHTML = "<div><b>" + title + "</b>" + (desc ? "<span>" + desc + "</span>" : "") + "</div>";
+      it.onclick = () => { hideTemplateMenu(); onClick(); };
+      sub.appendChild(it);
+    };
+    add("Blank project", cat.description, () => createProject(cat.id));
+    for (const ex of cat.examples) add(ex.name, "", () => createProject(cat.id, ex.id));
+    const mr = menu.getBoundingClientRect(), rr = rowEl.getBoundingClientRect();
+    sub.style.display = "block";
+    const w = sub.offsetWidth || 230;
+    let left = mr.right + 2; if (left + w > window.innerWidth - 6) left = mr.left - w - 2;
+    sub.style.left = Math.max(6, left) + "px";
+    sub.style.top = Math.min(rr.top, window.innerHeight - sub.offsetHeight - 6) + "px";
   };
   for (const cat of CATEGORIES) {
-    const head = document.createElement("div"); head.className = "cat"; head.textContent = cat.name;
-    menu.appendChild(head);
-    addItem("Blank project", cat.description, false, () => createProject(cat.id));
-    for (const ex of cat.examples) addItem(ex.name, "", true, () => createProject(cat.id, ex.id));
+    const row = document.createElement("div"); row.className = "row";
+    row.innerHTML = "<span>" + cat.name + "</span><span class='arrow'>▸</span>";
+    row.onmouseenter = () => openSub(cat, row);
+    row.onclick = () => openSub(cat, row);
+    menu.appendChild(row);
   }
   if (bridgeOn) {
     const sep = document.createElement("div"); sep.className = "sep"; menu.appendChild(sep);
-    const item = document.createElement("div"); item.className = "item";
-    item.innerHTML = "<b>Open installed script…</b><span>edit a script already in LiquidBounce</span>";
-    item.onclick = () => { menu.style.display = "none"; openInstalledScriptPicker(); };
-    menu.appendChild(item);
+    const row = document.createElement("div"); row.className = "row";
+    row.innerHTML = "<span>Open installed script…</span>";
+    row.onmouseenter = () => { sub.style.display = "none"; [...menu.querySelectorAll(".row")].forEach((r) => r.classList.remove("active")); };
+    row.onclick = () => { hideTemplateMenu(); openInstalledScriptPicker(); };
+    menu.appendChild(row);
   }
   const r = $("newProj").getBoundingClientRect();
   menu.style.left = Math.max(6, r.left) + "px"; menu.style.top = r.bottom + 4 + "px"; menu.style.display = "block";
@@ -340,7 +357,7 @@ async function openInstalledScriptProject(filename, content) {
   location.hash = proj.id; openFile(entry); renderTabs();
 }
 const openAsProject = openInstalledScriptProject;
-document.addEventListener("click", (e) => { const m = $("tmplMenu"); if (m.style.display === "block" && !m.contains(e.target) && e.target.id !== "newProj") m.style.display = "none"; });
+document.addEventListener("click", (e) => { const m = $("tmplMenu"), s = $("tmplSub"); if (m.style.display === "block" && !m.contains(e.target) && !s.contains(e.target) && e.target.id !== "newProj") hideTemplateMenu(); });
 
 // ---------------------------------------------------------------- share links
 // Encode the current project into the URL hash (#share=<gzip+base64url>) so a

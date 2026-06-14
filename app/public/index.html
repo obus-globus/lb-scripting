@@ -42,13 +42,15 @@
     #newProj { align-self:center; margin-left:4px; background:#3a3a3a; color:#fff; border:0; border-radius:4px; padding:4px 9px; font:inherit; font-size:13px; cursor:pointer; }
     #newProj:hover { background:#484848; }
     /* template menu */
-    #tmplMenu { position:fixed; z-index:50; background:var(--bg2); border:1px solid #111; border-radius:6px; box-shadow:0 6px 24px #000a; padding:4px; display:none; min-width:300px; max-height:74vh; overflow:auto; }
-    #tmplMenu .cat { padding:7px 10px 3px; font-size:10px; text-transform:uppercase; letter-spacing:.6px; color:#7fb0d6; font-weight:600; }
-    #tmplMenu .item { padding:6px 10px; border-radius:4px; cursor:pointer; }
-    #tmplMenu .item.sub { padding-left:22px; }
-    #tmplMenu .item:hover { background:var(--acc); }
-    #tmplMenu .item b { font-size:13px; font-weight:500; } #tmplMenu .item span { display:block; font-size:11px; color:#9a9a9a; }
-    #tmplMenu .item:hover span { color:#dde; }
+    #tmplMenu, #tmplSub { position:fixed; z-index:50; background:var(--bg2); border:1px solid #111; border-radius:6px; box-shadow:0 6px 24px #000a; padding:4px; display:none; }
+    #tmplMenu { min-width:200px; }
+    #tmplSub { min-width:230px; max-height:74vh; overflow:auto; }
+    #tmplMenu .row, #tmplMenu .item, #tmplSub .item { padding:7px 10px; border-radius:4px; cursor:pointer; display:flex; align-items:center; gap:8px; white-space:nowrap; }
+    #tmplMenu .row .arrow { margin-left:auto; color:#888; }
+    #tmplMenu .row:hover, #tmplMenu .row.active, #tmplMenu .item:hover, #tmplSub .item:hover { background:var(--acc); }
+    #tmplMenu .item b, #tmplSub .item b { font-size:13px; font-weight:500; }
+    #tmplMenu .item span, #tmplSub .item span { display:block; font-size:11px; color:#9a9a9a; }
+    #tmplMenu .item:hover span, #tmplSub .item:hover span { color:#dde; }
     #tmplMenu .sep { height:1px; background:#ffffff18; margin:4px 6px; }
     #mid { display:grid; grid-template-columns:200px 1fr; min-height:0; }
     #side { background:#252526; border-right:1px solid #111; overflow:auto; font-size:13px; }
@@ -141,6 +143,7 @@
     <div id="log"></div>
   </div>
   <div id="tmplMenu"></div>
+  <div id="tmplSub"></div>
   <div id="repl">
     <div id="replHead">
       <strong>REPL</strong> <span style="color:#888">— eval in the client · Ctrl/Cmd+Enter to run</span>
