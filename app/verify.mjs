@@ -66,6 +66,17 @@ ok(dNested.length === 0, "main.ts importing ./lib/greet type-checks: " + JSON.st
 const bNested = await page.evaluate(() => window.__ide.build());
 ok(!!bNested && bNested.code.includes("hi "), "nested lib/greet.ts inlined into build");
 
+console.log("\n[1e] lb-ide-host example (real multi-file LB script)");
+ok(cats.some((c) => c.id === "lb-ide-host"), "lb-ide-host category present");
+await page.evaluate(() => window.__ide.createProject("lb-ide-host"));
+const hsrc = await page.evaluate(() => { const a = window.__ide.auxFiles(); return window.__ide.listFiles().filter((f) => !a.includes(f)); });
+ok(hsrc.includes("server.ts") && hsrc.includes("cef.ts") && hsrc.includes("main.ts"), "host example is multi-file: " + JSON.stringify(hsrc));
+let hostDiags = 0;
+for (const f of hsrc) hostDiags += (await page.evaluate((x) => window.__ide.diagnosticsFor(x), f)).length;
+ok(hostDiags === 0, "all host source files type-check clean (catches the ES3-target regression): " + hostDiags + " diags");
+const hb = await page.evaluate(() => window.__ide.build());
+ok(!!hb && hb.code.length > 5000, "host example builds: " + (hb && hb.name + " " + hb.code.length + "B"));
+
 console.log("\n[1c] open-file tabs (second tier)");
 await page.evaluate(() => window.__ide.createProject("default-ts", "multi-file")); // main.ts + lib/format.ts
 await page.evaluate(() => window.__ide.openFile("lib/format.ts"));

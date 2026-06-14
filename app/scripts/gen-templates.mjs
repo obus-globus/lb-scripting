@@ -91,6 +91,7 @@ const categories = [
   buildCategory("plain-js", "Plain JS", "js", "lb-script-template-js", "No build step — // @ts-check'd JavaScript."),
   buildCategory("starter-ts", "Starter (TS)", "ts", "lb-script-starter", "JumpLogger starter with a boolean setting."),
   buildCategory("inject-ts", "Inject (TS)", "ts", "lb-inject-template", "Runtime bytecode injection via lb-inject."),
+  buildCategory("lb-ide-host", "LB Script IDE (host)", "ts", "lb-ide-explore/host", "The very script that opens this IDE in-game — multi-file, with an in-process HTTP server + CEF."),
 ];
 
 writeFileSync(path.join(app, "public/templates.json"), JSON.stringify({ categories }, null, 2));

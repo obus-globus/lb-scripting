@@ -58,7 +58,10 @@ function configureTS(defaults, isJs) {
   const t = monaco.languages.typescript;
   // moduleDetection: Force (3) — every file is its own module, so the many
   // example files don't collide in a shared global scope (matches the templates).
-  defaults.setCompilerOptions({ target: t.ScriptTarget.ES2022, module: t.ModuleKind.ESNext, moduleResolution: t.ModuleResolutionKind.NodeJs, moduleDetection: 3, lib: ["es2023"], types: ["@wunk/lb-script-api-types/ambient"], strict: true, skipLibCheck: true, allowNonTsExtensions: true, noEmit: true, ...(isJs ? { allowJs: true, checkJs: true } : {}) });
+  // NOTE: monaco's ScriptTarget enum lacks ES2022 in this build (undefined →
+  // target silently fell back to ES3). Use ESNext (defined) so modern syntax /
+  // iterables type-check correctly.
+  defaults.setCompilerOptions({ target: t.ScriptTarget.ESNext, module: t.ModuleKind.ESNext, moduleResolution: t.ModuleResolutionKind.NodeJs, moduleDetection: 3, lib: ["es2023"], types: ["@wunk/lb-script-api-types/ambient"], strict: true, skipLibCheck: true, allowNonTsExtensions: true, noEmit: true, ...(isJs ? { allowJs: true, checkJs: true } : {}) });
   defaults.setExtraLibs(baseExtraLibs);
   defaults.setEagerModelSync(true);
 }
