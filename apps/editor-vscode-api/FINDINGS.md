@@ -40,6 +40,28 @@ needs the client.
   `?worker&url` imports — NOT `getWorker` returning a `Worker` instance (that
   fails in the iframe with "extensionHostWorkerMain not defined").
 
+## Round 2 — wholesale demo config (per Koda: prove it CAN activate)
+Replicated the demo's full known-good config: **~52 service overrides** (all but
+terminal/chat/localization/remote, which need heavy local setup unrelated to TS),
+all **7 demo workers**, `workspaceProvider` folder, and opened the doc **through
+the vscode API** (`vscode.workspace.openTextDocument` → `showTextDocument`) to fire
+`onLanguage:typescript`. Result, still:
+- `ready:true`, `crossOriginIsolated:true`, no JS errors, doc `languageId:"typescript"`.
+- **`tsserver.web.js` still never requested; no diagnostics.**
+- **Concrete blocker found:** `vscode.extensions.all.length === 0` — **zero
+  extensions register**, and the extension-host iframe
+  (`webWorkerExtensionHostIframe.html`) is **never requested**. So the worker
+  extension host isn't loading in this Vite-build + static-serve config; with no
+  ext host, no extension (TS, anything) runs, so tsserver can't activate —
+  independent of the override set. (Likely the iframe's domain/serving assumption,
+  `iframeAlternateDomain`/`EnvironmentOverride`, or COEP-on-iframe handling that the
+  demo's dev server provides and my static serve does not.)
+
+Per Koda's stop condition ("if the full demo config still won't activate tsserver
+after a genuine attempt, pause and report"), stopping here. The blocker is now
+specific: **get the worker-extension-host iframe to load** (so `extensions.all` is
+non-empty); tsserver + typings follow from there.
+
 ## Unresolved — the crux
 - **`tsserver` never activated.** `tsserver.web.js` was never requested across:
   minimal (8) and fuller (16) service overrides; with and without a registered
