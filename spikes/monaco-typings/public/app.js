@@ -56,6 +56,35 @@ script.registerModule({ name: "Bad", category: "Misc" }, (mod) => {
 });
 `;
 
+// Plain-JS variants (LB scripts can be // @ts-check'd .js with no build step).
+const GOOD_JS = `// @ts-check
+/// <reference types="@wunk/lb-script-api-types/ambient" />
+const script = registerScript({ name: "JsProbe", version: "0.1.0", authors: ["obus"] });
+const VERBOSE = Setting.boolean({ name: "verbose", default: false });
+script.registerModule({ name: "JsProbe", category: "Misc" }, (mod) => {
+  mod.on("playerJump", () => {
+    const p = mc.player;
+    if (p === null) return;
+    Client.displayChatMessage("x=" + p.position().x.toFixed(2));
+    if (VERBOSE.get()) Client.displayChatMessage("v");
+  });
+});
+`;
+
+const BAD_JS = `// @ts-check
+/// <reference types="@wunk/lb-script-api-types/ambient" />
+const script = registerScript({ name: "BadJs", version: "0.1.0", authors: ["x"] });
+script.registerModule({ name: "BadJs", category: "Misc" }, (mod) => {
+  mod.on("playerJump", () => {
+    const p = mc.player;
+    if (p === null) return;
+    p.position().x.toUpperCase();    // number has no toUpperCase
+    Client.displayChatMessage(42);   // expects string
+    mod.on("totallyNotAnEvent", () => {}); // not a real event
+  });
+});
+`;
+
 const setStatus = (s) => (document.getElementById("status").textContent = s);
 
 require(["vs/editor/editor.main"], async () => {
@@ -81,6 +110,24 @@ require(["vs/editor/editor.main"], async () => {
     filePath: "file:///" + p,
   }));
   ts.setExtraLibs(libs);
+
+  // Same typings, but for plain-JS models. javascriptDefaults is a separate
+  // config; checkJs makes // @ts-check'd .js files report type errors too.
+  const js = monaco.languages.typescript.javascriptDefaults;
+  js.setCompilerOptions({
+    target: monaco.languages.typescript.ScriptTarget.ES2022,
+    module: monaco.languages.typescript.ModuleKind.ESNext,
+    moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+    lib: ["es2023"],
+    types: ["@wunk/lb-script-api-types/ambient"],
+    allowJs: true,
+    checkJs: true,
+    skipLibCheck: true,
+    allowNonTsExtensions: true,
+    noEmit: true,
+  });
+  js.setExtraLibs(libs);
+  js.setEagerModelSync(true);
   setStatus(`registered ${libs.length} typing files — booting editor…`);
 
   const model = monaco.editor.createModel(GOOD, "typescript", monaco.Uri.parse("file:///main.ts"));
@@ -91,12 +138,23 @@ require(["vs/editor/editor.main"], async () => {
     fontSize: 13,
   });
 
+  // getWorker: the TS worker getter handles BOTH .ts and .js models.
+  const getWorker = () => monaco.languages.typescript.getTypeScriptWorker();
+
+  // A scratch model we reuse per language; uri extension picks ts vs js routing.
+  function scratch(uri) {
+    const existing = monaco.editor.getModel(monaco.Uri.parse(uri));
+    if (existing) return existing;
+    const lang = uri.endsWith(".js") ? "javascript" : "typescript";
+    return monaco.editor.createModel("", lang, monaco.Uri.parse(uri));
+  }
+
   // Pull semantic+syntactic diagnostics straight from the worker for a file.
-  async function diagnose(code) {
-    model.setValue(code);
-    const worker = await monaco.languages.typescript.getTypeScriptWorker();
-    const client = await worker(model.uri);
-    const uri = model.uri.toString();
+  async function diagnose(m, code) {
+    m.setValue(code);
+    const worker = await getWorker();
+    const client = await worker(m.uri);
+    const uri = m.uri.toString();
     const [syn, sem] = await Promise.all([
       client.getSyntacticDiagnostics(uri),
       client.getSemanticDiagnostics(uri),
@@ -108,13 +166,13 @@ require(["vs/editor/editor.main"], async () => {
   }
 
   // Completions at a position (to prove ambient-global autocomplete works).
-  async function completionsAfter(snippet, marker) {
-    model.setValue(snippet);
+  async function completionsAfter(m, snippet, marker) {
+    m.setValue(snippet);
     const idx = snippet.indexOf(marker) + marker.length;
-    const pos = model.getPositionAt(idx);
-    const worker = await monaco.languages.typescript.getTypeScriptWorker();
-    const client = await worker(model.uri);
-    const info = await client.getCompletionsAtPosition(model.uri.toString(), model.getOffsetAt(pos));
+    const pos = m.getPositionAt(idx);
+    const worker = await getWorker();
+    const client = await worker(m.uri);
+    const info = await client.getCompletionsAtPosition(m.uri.toString(), m.getOffsetAt(pos));
     return info ? info.entries.map((e) => e.name) : [];
   }
 
@@ -123,24 +181,30 @@ require(["vs/editor/editor.main"], async () => {
 
   // Run the assertions and publish results for the headless verifier.
   setStatus("running diagnostics…");
-  const goodDiags = await diagnose(GOOD);
-  const badDiags = await diagnose(BAD);
-  // autocomplete on `mc.` — ambient global should yield members
-  const mcCompletions = await completionsAfter(
-    `/// <reference types="@wunk/lb-script-api-types/ambient" />\nmc.`,
-    "mc.",
-  );
+  const refLine = `/// <reference types="@wunk/lb-script-api-types/ambient" />\n`;
+
+  // --- TypeScript ---
+  const tsModel = scratch("file:///main.ts");
+  const goodDiags = await diagnose(tsModel, GOOD);
+  const badDiags = await diagnose(tsModel, BAD);
+  const mcCompletions = await completionsAfter(tsModel, refLine + "mc.", "mc.");
+
+  // --- JavaScript (// @ts-check) ---
+  const jsModel = scratch("file:///probe.js");
+  const goodJsDiags = await diagnose(jsModel, GOOD_JS);
+  const badJsDiags = await diagnose(jsModel, BAD_JS);
+  const mcJsCompletions = await completionsAfter(jsModel, "// @ts-check\n" + refLine + "mc.", "mc.");
+
   model.setValue(GOOD);
 
   window.__spike = {
     libCount: libs.length,
-    good: goodDiags,
-    bad: badDiags,
-    mcCompletionCount: mcCompletions.length,
-    mcSample: mcCompletions.slice(0, 12),
+    ts: { good: goodDiags, bad: badDiags, mcCount: mcCompletions.length, mcSample: mcCompletions.slice(0, 8) },
+    js: { good: goodJsDiags, bad: badJsDiags, mcCount: mcJsCompletions.length, mcSample: mcJsCompletions.slice(0, 8) },
     ready: true,
   };
   setStatus(
-    `done — good: ${goodDiags.length} errors, bad: ${badDiags.length} errors, mc.* completions: ${mcCompletions.length}`,
+    `done — TS good:${goodDiags.length}/bad:${badDiags.length}/mc:${mcCompletions.length}  ` +
+      `JS good:${goodJsDiags.length}/bad:${badJsDiags.length}/mc:${mcJsCompletions.length}`,
   );
 });

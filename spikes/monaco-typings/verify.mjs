@@ -51,19 +51,24 @@ server.close();
 const fails = [];
 console.log("\n=== Monaco spike results ===");
 console.log("typing files registered:", r.libCount);
-console.log("good.ts diagnostics:", r.good.length, JSON.stringify(r.good));
-console.log("bad.ts diagnostics: ", r.bad.length);
-for (const d of r.bad) console.log("   TS" + d.code + ":", d.message);
-console.log("mc.* completions:", r.mcCompletionCount, "sample:", r.mcSample.join(", "));
-
 if (r.libCount < 1000) fails.push(`expected many typing files, got ${r.libCount}`);
-if (r.good.length !== 0) fails.push(`good.ts should have 0 errors, got ${r.good.length}: ${JSON.stringify(r.good)}`);
-if (r.bad.length < 3) fails.push(`bad.ts should have >=3 errors, got ${r.bad.length}`);
-if (r.mcCompletionCount < 1) fails.push(`mc.* should yield completions (ambient global), got ${r.mcCompletionCount}`);
+
+for (const lang of ["ts", "js"]) {
+  const x = r[lang];
+  console.log(`\n[${lang.toUpperCase()}]`);
+  console.log(`  good ${lang}: ${x.good.length} errors ${JSON.stringify(x.good)}`);
+  console.log(`  bad  ${lang}: ${x.bad.length} errors`);
+  for (const d of x.bad) console.log("     TS" + d.code + ":", d.message);
+  console.log(`  mc.* completions: ${x.mcCount}  sample: ${x.mcSample.join(", ")}`);
+
+  if (x.good.length !== 0) fails.push(`good.${lang} should have 0 errors, got ${x.good.length}: ${JSON.stringify(x.good)}`);
+  if (x.bad.length < 3) fails.push(`bad.${lang} should have >=3 errors, got ${x.bad.length}`);
+  if (x.mcCount < 1) fails.push(`mc.* should yield completions in ${lang} (ambient global), got ${x.mcCount}`);
+}
 
 if (fails.length) {
   console.log("\nFAIL:");
   for (const f of fails) console.log("  -", f);
   process.exit(1);
 }
-console.log("\nPASS — typings resolve in-browser, autocomplete + diagnostics work, zero backend.");
+console.log("\nPASS — typings resolve in-browser for BOTH .ts and // @ts-check .js: autocomplete + diagnostics work, zero backend.");

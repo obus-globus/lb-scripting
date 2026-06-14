@@ -9,19 +9,30 @@ the closure small enough to ship to a browser?
 
 ## Results (reproduced by `node verify.mjs`)
 
+Verified for **both `.ts` and `// @ts-check` `.js`** — identical behaviour:
+
 ```
-typing files registered in-browser: 6,035   (closure of a representative script)
-closure size:                       10.6 MB raw / ~1.2 MB gzipped
-good.ts diagnostics:                0 errors  ← ambient globals + import both resolve
-bad.ts diagnostics:                 3 errors:
+                 good   bad        mc.* autocomplete
+TypeScript        0      3 errors   234 members
+JavaScript        0      3 errors   234 members   (// @ts-check)
+
+closure shipped:  6,035 files / 10.6 MB raw / ~1.2 MB gzipped
+bad-case errors (both languages):
    TS2339  Property 'toUpperCase' does not exist on type 'number'
    TS2345  Argument of type 'number' is not assignable to parameter of type 'string'
    TS2769  No overload matches this call       ← bogus event name rejected by typed on()
-mc.* autocomplete:                  234 real members
 ```
 
 So: real IDE-grade type-checking + autocomplete against our `.d.ts`, **zero
 backend**, per-tab isolated by construction.
+
+### JS vs TS nuance
+
+`javascriptDefaults` is a separate config from `typescriptDefaults`; the spike
+sets the same `extraLibs`/compiler options on both. For plain JS,
+**autocomplete works unconditionally**, but **type-error diagnostics require
+`// @ts-check`** at the top of the file (or a global `checkJs: true`) — which is
+exactly how the LB JS templates already mark their scripts.
 
 ### What made module resolution work
 
