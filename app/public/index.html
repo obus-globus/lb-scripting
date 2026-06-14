@@ -8,7 +8,7 @@
     /* themeable design tokens — overridden at runtime by the theme system */
     :root {
       --bg:#1e1e1e; --bg2:#252526; --bg3:#2d2d2d; --bg4:#1b1b1b; --fg:#d4d4d4; --fgdim:#888;
-      --acc:#0e639c; --acc2:#1177bb; --err:#f48771; --ok:#89d185;
+      --acc:#0e639c; --acc2:#1177bb; --err:#f48771; --ok:#89d185; --run:#2d7d33;
       --hover:#2a2d2e; --sel:#094771; --border:#111; --glassrgb:30,30,33;
       --font: ui-monospace, "SF Mono", Menlo, monospace;
     }
@@ -33,7 +33,7 @@
     #themeSel { font:inherit; font-size:12px; background:var(--bg3); color:var(--fg); border:1px solid var(--border); border-radius:4px; padding:3px 6px; cursor:pointer; }
     /* project tab bar */
     #tabs { display:flex; align-items:stretch; gap:2px; background:var(--bg4); border-bottom:1px solid var(--border); padding:0 6px; overflow-x:auto; min-height:34px; }
-    .ptab { display:flex; align-items:center; gap:8px; padding:6px 10px; font-size:12px; cursor:pointer; color:#aaa; border-top:2px solid transparent; white-space:nowrap; }
+    .ptab { display:flex; align-items:center; gap:8px; padding:6px 10px; font-size:12px; cursor:pointer; color:var(--fgdim); border-top:2px solid transparent; white-space:nowrap; }
     .ptab:hover { background:var(--bg3); }
     .ptab.active { background:var(--bg); color:#fff; border-top-color:var(--acc2); }
     .ptab .x { opacity:.45; } .ptab .x:hover { opacity:1; color:var(--err); }
@@ -41,41 +41,41 @@
     /* file tab bar (open editors in the current project) */
     #ftabs { display:flex; align-items:stretch; gap:1px; background:var(--bg4); border-bottom:1px solid var(--border); padding:0 6px; overflow-x:auto; min-height:30px; }
     #ftabs:empty { display:none; }
-    .ftab { display:flex; align-items:center; gap:8px; padding:4px 9px; font-size:12px; cursor:pointer; color:#9a9a9a; border-right:1px solid #111; white-space:nowrap; }
-    .ftab:hover { background:var(--bg3); color:#ccc; }
+    .ftab { display:flex; align-items:center; gap:8px; padding:4px 9px; font-size:12px; cursor:pointer; color:var(--fgdim); border-right:1px solid var(--border); white-space:nowrap; }
+    .ftab:hover { background:var(--bg3); color:var(--fg); }
     .ftab.active { background:var(--bg); color:#fff; }
     .ftab .dir { color:#666; }
     .ftab .x { opacity:.4; } .ftab:hover .x { opacity:.7; } .ftab .x:hover { opacity:1; color:var(--err); }
     #newProj { align-self:center; margin-left:4px; background:var(--bg3); color:#fff; border:0; border-radius:4px; padding:4px 9px; font:inherit; font-size:13px; cursor:pointer; }
     #newProj:hover { background:var(--hover); }
     /* template menu */
-    #tmplMenu, #tmplSub { position:fixed; z-index:50; background:var(--bg2); border:1px solid #111; border-radius:6px; box-shadow:0 6px 24px #000a; padding:4px; display:none; }
+    #tmplMenu, #tmplSub { position:fixed; z-index:50; background:var(--bg2); border:1px solid var(--border); border-radius:6px; box-shadow:0 6px 24px #000a; padding:4px; display:none; }
     #tmplMenu { min-width:200px; }
     #tmplSub { min-width:230px; max-height:74vh; overflow:auto; }
     #tmplMenu .row, #tmplMenu .item, #tmplSub .item { padding:7px 10px; border-radius:4px; cursor:pointer; display:flex; align-items:center; gap:8px; white-space:nowrap; }
-    #tmplMenu .row .arrow { margin-left:auto; color:#888; }
+    #tmplMenu .row .arrow { margin-left:auto; color:var(--fgdim); }
     #tmplMenu .row:hover, #tmplMenu .row.active, #tmplMenu .item:hover, #tmplSub .item:hover { background:var(--acc); }
     #tmplMenu .item b, #tmplSub .item b { font-size:13px; font-weight:500; }
-    #tmplMenu .item span, #tmplSub .item span { display:block; font-size:11px; color:#9a9a9a; }
+    #tmplMenu .item span, #tmplSub .item span { display:block; font-size:11px; color:var(--fgdim); }
     #tmplMenu .item:hover span, #tmplSub .item:hover span { color:#dde; }
     #tmplMenu .sep { height:1px; background:#ffffff18; margin:4px 6px; }
     #mid { display:grid; grid-template-columns:200px 1fr; min-height:0; }
-    #side { background:#252526; border-right:1px solid #111; overflow:auto; font-size:13px; }
-    #side::-webkit-scrollbar { width:10px; } #side::-webkit-scrollbar-thumb { background:#424242; }
-    #sideHead { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:8px 8px 6px 12px; font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:#bbb; position:sticky; top:0; background:#252526; z-index:2; }
+    #side { background:var(--bg2); border-right:1px solid var(--border); overflow:auto; font-size:13px; }
+    #side::-webkit-scrollbar { width:10px; } #side::-webkit-scrollbar-thumb { background:var(--bg3); }
+    #sideHead { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:8px 8px 6px 12px; font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--fgdim); position:sticky; top:0; background:var(--bg2); z-index:2; }
     #sideHead .sideActs { display:flex; gap:1px; }
-    #sideHead button { font:inherit; background:transparent; color:#c5c5c5; border:0; border-radius:5px; width:22px; height:22px; padding:0; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+    #sideHead button { font:inherit; background:transparent; color:var(--fgdim); border:0; border-radius:5px; width:22px; height:22px; padding:0; cursor:pointer; display:flex; align-items:center; justify-content:center; }
     #sideHead button:hover { background:#ffffff1a; }
     #sideHead button svg { width:16px; height:16px; }
     #sideHead button.on { background:var(--acc); color:#fff; }
     #sideHead button.on:hover { background:var(--acc2); }
     /* VS Code-style tree rows */
-    .tv-row { display:flex; align-items:center; height:22px; padding-right:6px; cursor:pointer; color:#cccccc; white-space:nowrap; user-select:none; }
+    .tv-row { display:flex; align-items:center; height:22px; padding-right:6px; cursor:pointer; color:var(--fg); white-space:nowrap; user-select:none; }
     .tv-row:hover { background:var(--hover); }
     .tv-row.active { background:var(--sel); }
     #side:focus-within .tv-row.active { background:var(--sel); }
     .tv-row .ig { width:8px; align-self:stretch; flex:none; box-shadow: inset 1px 0 0 #ffffff12; }
-    .tv-row .tw { width:16px; height:22px; flex:none; display:flex; align-items:center; justify-content:center; color:#c5c5c5; }
+    .tv-row .tw { width:16px; height:22px; flex:none; display:flex; align-items:center; justify-content:center; color:var(--fgdim); }
     .tv-row .tw svg { width:16px; height:16px; transition:transform .08s ease; }
     .tv-row .tw.closed svg { transform:rotate(-90deg); }
     .tv-row .ic { width:16px; height:16px; flex:none; margin-right:5px; display:flex; align-items:center; justify-content:center; }
@@ -83,28 +83,28 @@
     .tv-row .nm { overflow:hidden; text-overflow:ellipsis; }
     .tv-row.dim .nm { opacity:.55; }
     .tv-row.dim .ic { opacity:.6; }
-    .tv-row.root .nm { text-transform:uppercase; font-size:11px; letter-spacing:.5px; color:#bbb; font-weight:600; }
+    .tv-row.root .nm { text-transform:uppercase; font-size:11px; letter-spacing:.5px; color:var(--fgdim); font-weight:600; }
     .tv-row .acts { margin-left:auto; display:flex; gap:1px; opacity:0; padding-left:6px; }
     .tv-row:hover .acts { opacity:1; }
-    .tv-row .acts .b { width:20px; height:20px; display:flex; align-items:center; justify-content:center; color:#c5c5c5; border-radius:5px; }
+    .tv-row .acts .b { width:20px; height:20px; display:flex; align-items:center; justify-content:center; color:var(--fgdim); border-radius:5px; }
     .tv-row .acts .b:hover { background:#ffffff1f; }
     .tv-row .acts .b svg { width:15px; height:15px; }
     #editor { min-width:0; }
-    #log { height:150px; background:#141414; border-top:1px solid #111; overflow:auto; padding:8px 10px; font-size:12px; white-space:pre-wrap; }
+    #log { height:150px; background:var(--bg); border-top:1px solid var(--border); overflow:auto; padding:8px 10px; font-size:12px; white-space:pre-wrap; }
     #log .e { color:var(--err); }
     #log .s { color:var(--ok); }
-    #log .d { color:#888; }
-    #status { font-size:12px; color:#888; }
+    #log .d { color:var(--fgdim); }
+    #status { font-size:12px; color:var(--fgdim); }
     /* REPL panel */
     #repl { display:none; position:absolute; left:0; right:0; bottom:0; height:46%; background:var(--bg2); border-top:2px solid var(--acc); z-index:40; flex-direction:column; }
     #repl.open { display:flex; }
     #replHead { display:flex; align-items:center; gap:8px; padding:6px 10px; font-size:13px; background:var(--bg2); border-bottom:1px solid var(--border); }
     #replHead button { font:inherit; background:var(--acc); color:#fff; border:0; border-radius:4px; padding:4px 10px; cursor:pointer; }
     #replHead button.ghost { background:var(--bg3); }
-    #replHead button.ghost.on { background:#2d7d33; color:#fff; }
+    #replHead button.ghost.on { background:var(--run); color:#fff; }
     #replEditor { flex:1; min-height:0; }
-    #replOut { height:38%; overflow:auto; padding:6px 10px; font-size:12px; white-space:pre-wrap; border-top:1px solid #111; background:#141414; }
-    #replOut .in { color:#e0a060; } #replOut .ok { color:#89d185; } #replOut .err { color:#f48771; } #replOut .log { color:#bbb; } #replOut .stream { color:#6cb6ff; }
+    #replOut { height:38%; overflow:auto; padding:6px 10px; font-size:12px; white-space:pre-wrap; border-top:1px solid var(--border); background:var(--bg); }
+    #replOut .in { color:#e0a060; } #replOut .ok { color:var(--ok); } #replOut .err { color:var(--err); } #replOut .log { color:var(--fgdim); } #replOut .stream { color:#6cb6ff; }
   </style>
 </head>
 <body>
@@ -117,7 +117,7 @@
       <button id="rename" class="ghost">rename</button>
       <button id="share" class="ghost">share</button>
       <button id="build">build</button>
-      <button id="runClient" style="display:none; background:#2d7d33">build &amp; run in client</button>
+      <button id="runClient" style="display:none; background:var(--run)">build &amp; run in client</button>
       <button id="autoRun" class="ghost" style="display:none" title="rebuild &amp; reload in client on every edit">hot-reload: off</button>
       <button id="dbg" class="ghost" style="display:none" title="load with a GraalJS inspector (chrome devtools)">debug: off</button>
       <button id="replBtn" class="ghost" style="display:none" title="live REPL — eval snippets in the client">repl</button>
@@ -154,7 +154,7 @@
   <div id="tmplSub"></div>
   <div id="repl">
     <div id="replHead">
-      <strong>REPL</strong> <span style="color:#888">— eval in the client · Ctrl/Cmd+Enter to run</span>
+      <strong>REPL</strong> <span style="color:var(--fgdim)">— eval in the client · Ctrl/Cmd+Enter to run</span>
       <span style="flex:1"></span>
       <button id="replLive" class="ghost" title="stream log(...) output live (SSE)">live log: off</button>
       <button id="replRun">run</button>

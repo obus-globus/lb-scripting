@@ -518,13 +518,13 @@ const THEMES = {
   dark: {
     name: "Dark",
     editorBg: "#1e1e21",
-    vars: { bg: "#1e1e1e", bg2: "#252526", bg3: "#2d2d2d", bg4: "#1b1b1b", fg: "#d4d4d4", fgdim: "#888", acc: "#0e639c", acc2: "#1177bb", err: "#f48771", ok: "#89d185", hover: "#2a2d2e", sel: "#094771", border: "#111", glassrgb: "30,30,33", font: 'ui-monospace, "SF Mono", Menlo, monospace' },
+    vars: { bg: "#1e1e1e", bg2: "#252526", bg3: "#2d2d2d", bg4: "#1b1b1b", fg: "#d4d4d4", fgdim: "#888", acc: "#0e639c", acc2: "#1177bb", err: "#f48771", ok: "#89d185", run: "#2d7d33", hover: "#2a2d2e", sel: "#094771", border: "#111", glassrgb: "30,30,33", font: 'ui-monospace, "SF Mono", Menlo, monospace' },
     monaco: { base: "vs-dark", colors: {} },
   },
   liquidbounce: {
     name: "LiquidBounce",
     editorBg: "#0a0c10",
-    vars: { bg: "#050608", bg2: "#0c0e13", bg3: "#171a21", bg4: "#0a0c10", fg: "#ffffff", fgdim: "#8b93a7", acc: "#4677ff", acc2: "#5b86ff", err: "#fc4130", ok: "#4dac68", hover: "#ffffff14", sel: "#4677ff40", border: "#1b2030", glassrgb: "5,6,8", font: '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' },
+    vars: { bg: "#050608", bg2: "#0c0e13", bg3: "#171a21", bg4: "#0a0c10", fg: "#ffffff", fgdim: "#8b93a7", acc: "#4677ff", acc2: "#5b86ff", err: "#fc4130", ok: "#4dac68", run: "#2f9e57", hover: "#ffffff14", sel: "#4677ff40", border: "#1b2030", glassrgb: "5,6,8", font: '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' },
     monaco: { base: "vs-dark", colors: { "editor.background": "#0a0c10", "editor.lineHighlightBackground": "#4677ff12", "editor.selectionBackground": "#4677ff44", "editorCursor.foreground": "#4677ff", "editorLineNumber.foreground": "#39414f", "editorLineNumber.activeForeground": "#4677ff", "focusBorder": "#4677ff" } },
   },
 };
