@@ -1,0 +1,17 @@
+{
+  "name": "lb-ide-host",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "LiquidBounce script that opens the LB Script IDE in-game (CEF) and loads built scripts into the client.",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@wunk/lb-script-api-types": "^0.38.4",
+    "esbuild": "^0.23",
+    "typescript": "^5.4"
+  }
+}

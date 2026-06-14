@@ -376,6 +376,29 @@ require(["vs/editor/editor.main"], async () => {
 
   $("build").onclick = build;
   $("download").onclick = download;
+
+  // Host-bridge mode: when served by the in-client server (lb-ide-host), an
+  // /api/ping responds — then offer "build & run in client" (loads the built
+  // .mjs straight into LiquidBounce). On the plain web deploy this 404s and the
+  // button stays hidden, so this is purely additive.
+  let bridge = false;
+  (async () => {
+    try {
+      const r = await fetch(BASE + "api/ping", { method: "GET" });
+      if (r.ok && (await r.json()).ok) { bridge = true; $("runClient").style.display = ""; log("connected to LiquidBounce (in-client) — 'build & run in client' enabled", "d"); }
+    } catch { /* not in-client */ }
+  })();
+  $("runClient").onclick = async () => {
+    $("runClient").disabled = true;
+    try {
+      await build();
+      if (!lastBuild) return;
+      const res = await fetch(BASE + "api/load", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: proj.name, mjs: lastBuild.code }) }).then((r) => r.json());
+      if (res.ok) log("✓ loaded into client as " + res.name, "s");
+      else log("✗ load failed: " + (res.error || "?"), "e");
+    } catch (e) { log("✗ run-in-client failed: " + (e && e.message || e), "e"); }
+    finally { $("runClient").disabled = false; }
+  };
   $("addFile").onclick = () => addFileAt("");
   $("addFolder").onclick = () => addFolderAt("");
   $("collapseAll").onclick = () => { for (const d of allDirPaths()) collapsed.add(d); renderFiles(); };
