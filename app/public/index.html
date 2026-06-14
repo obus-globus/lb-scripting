@@ -84,6 +84,15 @@
     #log .s { color:var(--ok); }
     #log .d { color:#888; }
     #status { font-size:12px; color:#888; }
+    /* REPL panel */
+    #repl { display:none; position:absolute; left:0; right:0; bottom:0; height:46%; background:#1b1b1b; border-top:2px solid #0e639c; z-index:40; flex-direction:column; }
+    #repl.open { display:flex; }
+    #replHead { display:flex; align-items:center; gap:8px; padding:6px 10px; font-size:13px; background:#252526; border-bottom:1px solid #111; }
+    #replHead button { font:inherit; background:#0e639c; color:#fff; border:0; border-radius:4px; padding:4px 10px; cursor:pointer; }
+    #replHead button.ghost { background:#3a3a3a; }
+    #replEditor { flex:1; min-height:0; }
+    #replOut { height:38%; overflow:auto; padding:6px 10px; font-size:12px; white-space:pre-wrap; border-top:1px solid #111; background:#141414; }
+    #replOut .in { color:#e0a060; } #replOut .ok { color:#89d185; } #replOut .err { color:#f48771; }
   </style>
 </head>
 <body>
@@ -98,6 +107,7 @@
       <button id="runClient" style="display:none; background:#2d7d33">build &amp; run in client</button>
       <button id="autoRun" class="ghost" style="display:none" title="rebuild &amp; reload in client on every edit">hot-reload: off</button>
       <button id="dbg" class="ghost" style="display:none" title="load with a GraalJS inspector (chrome devtools)">debug: off</button>
+      <button id="replBtn" class="ghost" style="display:none" title="live REPL — eval snippets in the client">repl</button>
       <button id="download" class="ghost" disabled>download .mjs</button>
     </div>
     <div id="tabs"></div>
@@ -128,6 +138,16 @@
     <div id="log"></div>
   </div>
   <div id="tmplMenu"></div>
+  <div id="repl">
+    <div id="replHead">
+      <strong>REPL</strong> <span style="color:#888">— eval in the client · Ctrl/Cmd+Enter to run</span>
+      <span style="flex:1"></span>
+      <button id="replRun">run</button>
+      <button id="replClose" class="ghost">close</button>
+    </div>
+    <div id="replEditor"></div>
+    <div id="replOut"></div>
+  </div>
   <script src="vs/loader.js"></script>
   <script src="esbuild.js"></script>
   <script src="main.js"></script>

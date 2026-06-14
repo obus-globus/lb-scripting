@@ -17,10 +17,19 @@ in-process HTTP server (raw java ServerSocket on an UnsafeThread):
   GET  /api/ping        bridge detection (editor shows "build & run in client")
   POST /api/load        { name, mjs } → write <name>.mjs to ScriptManager.root,
                           ScriptManager.loadScript(...) + enable  (on the MC thread)
-  GET  /api/scripts     list installed scripts
+  POST /api/load        { name, mjs, debug? } — debug=true loads with a GraalJS
+                          inspector (chrome devtools) on :9229
+  POST /api/unload      { name } → unload a loaded script
+  POST /api/repl        { code } → eval a snippet in the client (last expr shown)
+  GET  /api/scripts · GET /api/script?name=   list / read installed scripts
   GET  /api/projects · POST /api/save   persist projects to <LB root>/lb-ide/projects/
   POST /api/close       dismiss the editor screen (editor Hide / Esc)
 ```
+
+The editor (when in-client) exposes: **build & run in client**, **hot-reload**
+(auto rebuild+load on edit), **debug** (inspector), a **REPL** panel (typed
+snippets eval'd live), **share links** (project encoded in the URL hash), and
+**open installed script**.
 
 The editor (the esbuild-wasm edition in [`../app/`](../app/)) builds the `.mjs`
 **entirely in the CEF tab** (no backend, no COOP/COEP needed), then POSTs it to

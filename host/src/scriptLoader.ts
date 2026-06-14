@@ -117,6 +117,21 @@ export function listScripts(): string[] {
   } catch { return []; }
 }
 
+/** Evaluate a REPL snippet in the script's global context (has mc/Client/etc.).
+ *  Indirect eval runs in global scope. Must be called on the MC thread. */
+export function replEval(code: string): { ok: boolean; result?: string; error?: string } {
+  try {
+    const indirect = eval; // indirect eval → global scope (ambient LB globals visible)
+    const r = (indirect as (s: string) => unknown)(code);
+    let out: string;
+    if (r === undefined) out = "undefined";
+    else { try { out = JSON.stringify(r); } catch { out = String(r); } if (out === undefined) out = String(r); }
+    return { ok: true, result: out };
+  } catch (e) {
+    return { ok: false, error: String((e as { message?: string })?.message ?? e) };
+  }
+}
+
 /** The scripts dir absolute path (for the editor / debugging). */
 export function scriptsRoot(): string | null {
   try { const sm = scriptManager(); return sm ? String((sm.root as { getAbsolutePath(): unknown }).getAbsolutePath()) : null; } catch { return null; }

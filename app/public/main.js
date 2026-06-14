@@ -490,7 +490,7 @@ require(["vs/editor/editor.main"], async () => {
       const r = await fetch(BASE + "api/ping", { method: "GET" });
       if (!(r.ok && (await r.json()).ok)) return;
       bridgeOn = true;
-      $("runClient").style.display = ""; $("autoRun").style.display = ""; $("dbg").style.display = "";
+      $("runClient").style.display = ""; $("autoRun").style.display = ""; $("dbg").style.display = ""; $("replBtn").style.display = "";
       log("connected to LiquidBounce (in-client) — projects persist on disk; run/hot-reload/debug enabled", "d");
       // pull any projects saved on disk (durable across CEF sessions) into the tabs
       try {
@@ -518,6 +518,30 @@ require(["vs/editor/editor.main"], async () => {
   hotReloadFn = () => { clearTimeout(hotTimer); hotTimer = setTimeout(() => { if (autoRun && bridgeOn) loadToClient().catch(() => {}); }, 900); };
   $("autoRun").onclick = () => { autoRun = !autoRun; $("autoRun").textContent = "hot-reload: " + (autoRun ? "on" : "off"); $("autoRun").classList.toggle("on", autoRun); if (autoRun) loadToClient().catch(() => {}); };
   $("dbg").onclick = () => { debugOn = !debugOn; $("dbg").textContent = "debug: " + (debugOn ? "on" : "off"); $("dbg").classList.toggle("on", debugOn); };
+
+  // REPL: a typed snippet box that evals in the client (last expression shown).
+  let replEd = null;
+  const appendRepl = (text, cls) => { const o = $("replOut"); const d = document.createElement("div"); if (cls) d.className = cls; d.textContent = text; o.appendChild(d); o.scrollTop = o.scrollHeight; };
+  async function runRepl() {
+    if (!replEd) return;
+    const code = replEd.getModel().getValue();
+    appendRepl("› " + code.replace(/\s*\n\s*/g, " ⏎ "), "in");
+    try {
+      const res = await fetch(BASE + "api/repl", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) }).then((r) => r.json());
+      appendRepl(res.ok ? String(res.result) : "✗ " + (res.error || "?"), res.ok ? "ok" : "err");
+    } catch (e) { appendRepl("✗ " + (e && e.message || e), "err"); }
+  }
+  function ensureRepl() {
+    if (replEd) return;
+    const model = monaco.editor.createModel(
+      '/// <reference types="@wunk/lb-script-api-types/ambient" />\n// runs in the client — the last expression is shown. Ctrl/Cmd+Enter.\nmc.player ? mc.player.position() : "no player"',
+      "typescript", monaco.Uri.parse("file:///__repl__/snippet.ts"));
+    replEd = monaco.editor.create($("replEditor"), { model, theme, automaticLayout: true, fontSize: 13, minimap: { enabled: false } });
+    replEd.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, runRepl);
+  }
+  $("replBtn").onclick = () => { const el = $("repl"); el.classList.toggle("open"); if (el.classList.contains("open")) { ensureRepl(); setTimeout(() => { replEd.layout(); replEd.focus(); }, 0); } };
+  $("replRun").onclick = runRepl;
+  $("replClose").onclick = () => $("repl").classList.remove("open");
   $("addFile").onclick = () => addFileAt("");
   $("addFolder").onclick = () => addFolderAt("");
   $("collapseAll").onclick = () => { for (const d of allDirPaths()) collapsed.add(d); renderFiles(); };
