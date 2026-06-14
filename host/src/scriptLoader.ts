@@ -81,6 +81,19 @@ export function loadBuiltScript(name: string, mjs: string): LoadResult {
   }
 }
 
+/** Unload a loaded script by (file) name. Returns whether one was unloaded. */
+export function unloadByName(name: string): boolean {
+  try {
+    const sm = scriptManager(); if (!sm) return false;
+    const want = safeName(name);
+    let hit = false;
+    for (const s of sm.scripts || []) {
+      if (s && s.scriptName && safeName(s.scriptName) === want) { try { sm.unloadScript(s); hit = true; } catch { /* */ } }
+    }
+    return hit;
+  } catch { return false; }
+}
+
 /** List installed scripts in the scripts dir (so the editor can open them). */
 export function listScripts(): string[] {
   try {

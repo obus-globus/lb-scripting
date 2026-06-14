@@ -411,7 +411,21 @@ require(["vs/editor/editor.main"], async () => {
   configureTS(monaco.languages.typescript.typescriptDefaults, false);
   configureTS(monaco.languages.typescript.javascriptDefaults, true);
 
-  editor = monaco.editor.create($("editor"), { theme: "vs-dark", automaticLayout: true, fontSize: 13, minimap: { enabled: false } });
+  // In-game translucency: ?opacity=NN (20–100). <100 → see the game behind.
+  let theme = "vs-dark";
+  try {
+    const op = Math.max(20, Math.min(100, parseInt(new URLSearchParams(location.search).get("opacity") || "100", 10) || 100));
+    if (op < 100) {
+      const a = op / 100;
+      document.documentElement.style.setProperty("--a", String(a));
+      document.documentElement.classList.add("translucent");
+      const hex = Math.round(a * 255).toString(16).padStart(2, "0");
+      monaco.editor.defineTheme("lb-glass", { base: "vs-dark", inherit: true, rules: [], colors: { "editor.background": "#1e1e21" + hex } });
+      theme = "lb-glass";
+    }
+  } catch { /* */ }
+
+  editor = monaco.editor.create($("editor"), { theme, automaticLayout: true, fontSize: 13, minimap: { enabled: false } });
 
   meta = (await dbGet(M_STORE, "open")) || { ids: [], current: null };
   const wanted = location.hash.replace(/^#/, "");

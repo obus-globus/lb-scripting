@@ -13,7 +13,7 @@
 declare const Java: { type(name: string): unknown };
 declare const UnsafeThread: { run(fn: () => void): unknown };
 
-import { loadBuiltScript, listScripts, readScript, scriptsRoot, type LoadResult } from "./scriptLoader";
+import { loadBuiltScript, unloadByName, listScripts, readScript, scriptsRoot, type LoadResult } from "./scriptLoader";
 
 type Jany = { [k: string]: unknown } & ((...a: unknown[]) => unknown);
 const T = (n: string): Jany => Java.type(n) as unknown as Jany;
@@ -168,6 +168,11 @@ export function startServer(opts: ServerOpts): boolean {
           if (p && typeof p.mjs === "string") res = runOnMain<LoadResult>(() => loadBuiltScript(p.name || "script", p.mjs as string), { ok: false, error: "main-thread timeout" });
         } catch { /* */ }
         writeText(outs, res.ok ? 200 : 500, res.ok ? "OK" : "Error", MIME.json, JSON.stringify(res)); sock.close(); return;
+      }
+      if (method === "POST" && path === "/api/unload") {
+        let okU = false;
+        try { const p = JSON.parse(body) as { name?: string }; if (p && p.name) okU = runOnMain<boolean>(() => unloadByName(p.name as string), false); } catch { /* */ }
+        writeText(outs, 200, "OK", MIME.json, JSON.stringify({ ok: okU })); sock.close(); return;
       }
       // static editor
       if (method === "GET") { serveFile(outs, path === "/" ? "/" : path); sock.close(); return; }

@@ -59,11 +59,14 @@ Then `.script reload` (or restart) and `.ide`. (See `release/INSTALL.txt`.)
 
 3. In-game:
    ```
-   .ide          open the editor
-   .ide close    close it
-   .ide where    print the editor / scripts / server locations
+   .ide                open the editor
+   .ide close          close it
+   .ide unload <name>  unload a loaded script by filename
+   .ide where          print the editor / scripts / server locations
    ```
-   Or toggle the **ScriptIDE** module (Misc).
+   Or **bind a key** to the **ScriptIDE** module (Misc) in the ClickGUI to open
+   it with that key. Module settings: **opacity** (20–100% — &lt;100 shows the
+   game crisply behind the editor) and **blur** (the MC screen background blur).
 
 ## Status & caveats
 

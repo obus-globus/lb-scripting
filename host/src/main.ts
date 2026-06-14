@@ -12,23 +12,37 @@
 
 import { openEditorScreen, closeEditorScreen } from "./cef";
 import { startServer } from "./server";
-import { scriptsRoot } from "./scriptLoader";
+import { scriptsRoot, unloadByName } from "./scriptLoader";
 
 const PORT = 8791;                       // localhost only
 const EDITOR_DIR = "lb-ide-editor";      // <LB root>/lb-ide-editor/
-const EDITOR_URL = `http://127.0.0.1:${PORT}/`;
+const BASE_URL = `http://127.0.0.1:${PORT}/`;
 
 const script = registerScript({ name: "lb-ide-host", version: "0.1.0", authors: ["Obus"] });
 
+// Settings (shown under the ScriptIDE module; also bind the module to a key in
+// the ClickGUI to open the editor with that key).
+const OPACITY = Setting.int({ name: "opacity", default: 100, range: [20, 100], suffix: "%" });
+const BLUR = Setting.boolean({ name: "blur", default: true });
+
 let serverUp = false;
 
+function ensureServer(): boolean {
+  if (!serverUp) serverUp = startServer({ port: PORT, editorDirName: EDITOR_DIR, onClose: () => closeEditorScreen() });
+  return serverUp;
+}
+function openIde(): void {
+  if (!ensureServer()) { Client.displayChatMessage("§c[ScriptIDE] could not start the local server."); return; }
+  const url = BASE_URL + "?opacity=" + OPACITY.get();
+  if (!openEditorScreen(url, BLUR.get())) Client.displayChatMessage("§c[ScriptIDE] could not open the CEF editor (LB browser backend unavailable).");
+}
+
 script.registerModule(
-  { name: "ScriptIDE", category: "Misc", description: "Open the LB Script IDE in-game (.ide)." },
+  { name: "ScriptIDE", category: "Misc", description: "Open the LB Script IDE in-game — bind a key to open, or use .ide." },
   (mod) => {
     mod.on("enable", () => {
-      if (!serverUp) serverUp = startServer({ port: PORT, editorDirName: EDITOR_DIR, onClose: () => closeEditorScreen() });
-      if (!openEditorScreen(EDITOR_URL)) Client.displayChatMessage("§c[ScriptIDE] could not open the CEF editor (LB browser backend unavailable).");
-      // a module toggle is momentary here — opening the screen is the action
+      openIde();
+      // momentary: opening the screen is the action, not a persistent toggle
       try { (mod as unknown as { enabled: boolean }).enabled = false; } catch { /* */ }
     });
   },
@@ -39,18 +53,24 @@ script.registerModule(
 (script as unknown as { registerCommand(cmd: Record<string, unknown>): void }).registerCommand({
   name: "ide",
   aliases: ["scriptide"],
-  parameters: [{ name: "action", required: false, getCompletions: () => ["open", "close", "where"] }],
-  onExecute: (action?: string) => {
+  parameters: [
+    { name: "action", required: false, getCompletions: () => ["open", "close", "where", "unload"] },
+    { name: "name", required: false, getCompletions: () => [] },
+  ],
+  onExecute: (action?: string, name?: string) => {
     const a = (action || "open").toLowerCase();
     if (a === "close") { closeEditorScreen(); return; }
+    if (a === "unload") {
+      if (!name) { Client.displayChatMessage("§c[ScriptIDE] usage: .ide unload <script.mjs>"); return; }
+      Client.displayChatMessage(unloadByName(name) ? "§a[ScriptIDE] unloaded " + name : "§c[ScriptIDE] no loaded script named " + name);
+      return;
+    }
     if (a === "where") {
       Client.displayChatMessage("§b[ScriptIDE] editor dir: §f<LB root>/" + EDITOR_DIR + "/");
       Client.displayChatMessage("§b[ScriptIDE] scripts dir: §f" + (scriptsRoot() ?? "?"));
-      Client.displayChatMessage("§b[ScriptIDE] server: §f" + EDITOR_URL + (serverUp ? " §a(up)" : " §c(down)"));
+      Client.displayChatMessage("§b[ScriptIDE] server: §f" + BASE_URL + (serverUp ? " §a(up)" : " §c(down)"));
       return;
     }
-    if (!serverUp) serverUp = startServer({ port: PORT, editorDirName: EDITOR_DIR, onClose: () => closeEditorScreen() });
-    if (!serverUp) { Client.displayChatMessage("§c[ScriptIDE] could not start the local server."); return; }
-    if (!openEditorScreen(EDITOR_URL)) Client.displayChatMessage("§c[ScriptIDE] could not open the CEF editor (LB browser backend unavailable).");
+    openIde();
   },
 });
