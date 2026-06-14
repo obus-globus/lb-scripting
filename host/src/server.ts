@@ -101,9 +101,35 @@ function runOnMain<R>(fn: () => R, fallback: R): R {
 
 export interface ServerOpts { port: number; editorDirName: string; onClose: () => void }
 
+// --- live log stream: a global `log(...)` that snippets/scripts can call to
+// stream output to subscribed editors over SSE, with NO global print hijack. ---
+const fmtArgs = (args: unknown[]): string => args.map((a) => { if (typeof a === "string") return a; try { const s = JSON.stringify(a); return s === undefined ? String(a) : s; } catch { return String(a); } }).join(" ");
+interface Sub { outs: { write(b: unknown): void; flush(): void }; sock: { close(): void } }
+let logStreamReady = false;
+const subs: Sub[] = [];
+function broadcast(line: string): void {
+  const bytes = jbytes("data: " + JSON.stringify(line) + "\n\n");
+  for (let i = subs.length - 1; i >= 0; i--) {
+    try { subs[i].outs.write(bytes); subs[i].outs.flush(); }
+    catch { try { subs[i].sock.close(); } catch { /* */ } subs.splice(i, 1); }
+  }
+}
+/** Install the global `log(...)` + the SSE drainer thread (idempotent). */
+function ensureLogStream(): void {
+  if (logStreamReady) return;
+  try {
+    const Q = new (T("java.util.concurrent.ConcurrentLinkedQueue") as unknown as new () => { add(x: unknown): void; poll(): unknown })();
+    (globalThis as unknown as { log: (...a: unknown[]) => void }).log = (...args: unknown[]): void => { try { Q.add(fmtArgs(args)); } catch { /* */ } };
+    const Thread = T("java.lang.Thread") as unknown as { sleep(ms: number): void };
+    UnsafeThread.run(() => { for (;;) { let line: unknown = null; try { line = Q.poll(); } catch { /* */ } if (line === null) { try { Thread.sleep(40); } catch { /* */ } continue; } broadcast(String(line)); } });
+    logStreamReady = true;
+  } catch { /* */ }
+}
+
 export function startServer(opts: ServerOpts): boolean {
   const root = lbRoot();
   if (!root) return false;
+  ensureLogStream();
   const Paths = Topt("java.nio.file.Paths"); const Files = Topt("java.nio.file.Files");
   if (!Paths || !Files) return false;
   const get = (...p: string[]): unknown => (Paths.get as (a: string, ...r: string[]) => unknown)(p[0], ...p.slice(1));
@@ -142,6 +168,16 @@ export function startServer(opts: ServerOpts): boolean {
 
       if (method === "OPTIONS") { writeText(outs, 204, "No Content", MIME.txt, ""); sock.close(); return; }
       if (path === "/api/ping") { writeText(outs, 200, "OK", MIME.json, JSON.stringify({ ok: true, root: scriptsRoot() })); sock.close(); return; }
+      if (method === "GET" && path === "/api/repl/stream") {
+        // Server-Sent Events: keep the socket open, register it, DON'T close it.
+        try {
+          outs.write(jbytesLatin("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream; charset=utf-8\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n"));
+          outs.flush();
+          subs.push({ outs, sock });
+          try { outs.write(jbytes("data: " + JSON.stringify("[log stream connected — call log(...) in snippets]") + "\n\n")); outs.flush(); } catch { /* */ }
+        } catch { try { sock.close(); } catch { /* */ } }
+        return; // leave open
+      }
       if (path === "/api/close") { try { opts.onClose(); } catch { /* */ } writeText(outs, 200, "OK", MIME.json, JSON.stringify({ ok: true })); sock.close(); return; }
       if (method === "GET" && path === "/api/scripts") { writeText(outs, 200, "OK", MIME.json, JSON.stringify(listScripts())); sock.close(); return; }
       if (method === "GET" && path === "/api/script") {

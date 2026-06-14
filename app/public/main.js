@@ -448,6 +448,9 @@ require(["vs/editor/editor.main"], async () => {
   const bundle = await fetch("typings-bundle.json").then((r) => r.json());
   baseExtraLibs = Object.entries(bundle).map(([p, content]) => ({ content, filePath: "file:///" + p }));
   baseExtraLibs.push({ content: INJECT_DTS, filePath: "file:///node_modules/@types/lb-inject/index.d.ts" });
+  // `log(...)` is injected by the in-client host into REPL snippets — it streams
+  // output live (incl. from async callbacks) to the REPL panel.
+  baseExtraLibs.push({ content: "/** REPL/in-client only: stream a value to the live REPL log panel. */\ndeclare function log(...args: any[]): void;", filePath: "file:///node_modules/@types/lb-repl/index.d.ts" });
   configureTS(monaco.languages.typescript.typescriptDefaults, false);
   configureTS(monaco.languages.typescript.javascriptDefaults, true);
 
@@ -540,9 +543,23 @@ require(["vs/editor/editor.main"], async () => {
     replEd = monaco.editor.create($("replEditor"), { model, theme, automaticLayout: true, fontSize: 13, minimap: { enabled: false } });
     replEd.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, runRepl);
   }
+  // live log stream (SSE) — OPT-IN via the "live log" toggle. When on, log(...)
+  // calls in snippets/scripts stream here in real time (incl. async callbacks).
+  let replStream = null;
+  function setLive(on) {
+    if (on && !replStream && bridgeOn) {
+      try {
+        replStream = new EventSource(BASE + "api/repl/stream");
+        replStream.onmessage = (e) => { try { appendRepl(JSON.parse(e.data), "stream"); } catch { appendRepl(e.data, "stream"); } };
+      } catch { /* */ }
+    } else if (!on && replStream) { try { replStream.close(); } catch { /* */ } replStream = null; }
+    $("replLive").textContent = "live log: " + (replStream ? "on" : "off");
+    $("replLive").classList.toggle("on", !!replStream);
+  }
+  $("replLive").onclick = () => setLive(!replStream);
   $("replBtn").onclick = () => { const el = $("repl"); el.classList.toggle("open"); if (el.classList.contains("open")) { ensureRepl(); setTimeout(() => { replEd.layout(); replEd.focus(); }, 0); } };
   $("replRun").onclick = runRepl;
-  $("replClose").onclick = () => $("repl").classList.remove("open");
+  $("replClose").onclick = () => { $("repl").classList.remove("open"); setLive(false); };
   $("addFile").onclick = () => addFileAt("");
   $("addFolder").onclick = () => addFolderAt("");
   $("collapseAll").onclick = () => { for (const d of allDirPaths()) collapsed.add(d); renderFiles(); };
