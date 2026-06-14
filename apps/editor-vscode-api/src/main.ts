@@ -1,7 +1,7 @@
 import * as monaco from "monaco-editor";
 import * as vscode from "vscode";
 import { initialize } from "@codingame/monaco-vscode-api";
-import getFileServiceOverride, { RegisteredFileSystemProvider, RegisteredMemoryFile, registerFileSystemOverlay } from "@codingame/monaco-vscode-files-service-override";
+import getFileServiceOverride, { RegisteredFileSystemProvider, RegisteredMemoryFile, registerFileSystemOverlay, createIndexedDBProviders } from "@codingame/monaco-vscode-files-service-override";
 // --- the demo's known-good override set (terminal/chat/localization/remote omitted: heavy local setup, unrelated to TS activation) ---
 import getExtensionServiceOverride from "@codingame/monaco-vscode-extensions-service-override";
 import getModelServiceOverride from "@codingame/monaco-vscode-model-service-override";
@@ -94,6 +94,9 @@ const workerUrls: Record<string, string> = {
 
 (async () => {
   try {
+    // IndexedDB-backed userData/cache/logs/extensions FS — the ext host needs
+    // somewhere to persist its state to actually boot (the named missing lead)
+    await createIndexedDBProviders();
     const container = document.createElement("div");
     container.style.height = "100vh";
     document.body.replaceChildren(container);
@@ -161,23 +164,22 @@ const workerUrls: Record<string, string> = {
       ...getWorkbenchServiceOverride(),
     }, container, {
       workspaceProvider: { trusted: true, workspace: { folderUri: wsUri }, async open() { return false; } },
-      // let the workbench open the editor (the demo's activation path)
-      defaultLayout: { editors: [{ uri, viewColumn: 1 }], force: true },
     } as any, { userHome: monaco.Uri.file("/") } as any);
     S.ready = true;
 
-    // await the default-extension registration (the recurring missing piece)
     const to = (ms: number) => new Promise((r) => setTimeout(() => r("timeout"), ms));
     S.tsReady = await Promise.race([Promise.all([tsBasicsReady(), tsLangReady()]).then(() => "ready"), to(40000)]);
 
-    // open the document THROUGH the vscode API so onLanguage:typescript activation fires
-    const doc = await vscode.workspace.openTextDocument(uri);
-    S.opened = doc.languageId;
-    try { await vscode.window.showTextDocument(doc); } catch { /* no workbench editor pane — opening is enough to activate */ }
+    // open the file robustly via the workbench so an editor actually shows it
+    // (headful showed the workbench renders but the editor group was empty)
+    try {
+      const doc = await vscode.workspace.openTextDocument(uri);
+      S.opened = doc.languageId;
+      await vscode.commands.executeCommand("vscode.open", uri);
+      await to(500);
+      S.activeEditor = vscode.window.activeTextEditor?.document.uri.toString() || null;
+    } catch (e: any) { S.openErr = String(e?.message || e).slice(0, 160); }
 
     S.markers = () => monaco.editor.getModelMarkers({ resource: uri }).map((m: any) => ({ code: m.code, msg: String(m.message).slice(0, 80) }));
-    S.exts = vscode.extensions.all.map((e:any)=>e.id).filter((id:string)=>/typescript|tsserver|builtin/i.test(id)).slice(0,10);
-    S.extCount = vscode.extensions.all.length;
-    S.tsExt = (()=>{const e=vscode.extensions.getExtension("vscode.typescript-language-features") as any; return e?{isActive:e.isActive}:"not-found";})();
   } catch (e: any) { S.err = String(e?.stack || e?.message || e).slice(0, 400); }
 })();

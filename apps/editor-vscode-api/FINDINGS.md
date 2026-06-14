@@ -5,6 +5,24 @@ crux questions task 1 left open, measure bundle delta, and probe CEF. Findings
 separate **verified** (headless Chromium) / **unresolved** / **needs scorpion's
 client**. An adversarial review was run; overclaims softened.
 
+## Round 5 (HEADFUL, Xvfb) — major correction: the workbench DOES render
+Koda's "headless gives false negatives" call was right. Under **real Chromium
+(Xvfb)** the VS Code workbench **renders** — activity bar (Explorer/Search/SCM/Run),
+settings/account, editor area. Screenshots `/tmp/headful-v33.png`, `/tmp/headful-v33c.png`.
+- Added `await createIndexedDBProviders()` (IndexedDB userData/cache/logs FS) +
+  `vscode.commands.executeCommand("vscode.open", uri)`. Now `iframes:1` in the DOM —
+  **the ext-host iframe DOES exist** (srcdoc/blob, NOT an HTTP request — so every
+  prior `iframeReq:false` was a false signal from HTTP-only detection).
+  `activeTextEditor === file:///workspace/main.ts`.
+- **Still:** editor shows "Drag a view here to display" (file not rendered),
+  Explorer empty (workspace not populated), **no `tsserver.web.js`, no diagnostics.**
+- **Correction:** several earlier "decisive blocker" calls were headless /
+  HTTP-detection artifacts. The workbench loads; real remaining frontier = (a) the
+  workspace/file isn't wired into the UI, (b) tsserver activation. **Leading next
+  lead:** register a **service worker for `extension-file://`** resources — the v20
+  wrapper dist ships `service-worker.js`, and task-1's v20 tsserver failed exactly
+  with `extension-file://…tsserver.web.js cannot be accessed from origin`.
+
 ## TL;DR
 Got the v33 platform building + rendering with **`crossOriginIsolated === true`**
 on localhost (the key CEF input) and the iframe worker-extension-host wired. But
