@@ -1,0 +1,38 @@
+{
+  "name": "lb-ide-vscode-api-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite"
+  },
+  "dependencies": {
+    "@codingame/monaco-vscode-api": "33.0.9",
+    "@codingame/monaco-vscode-configuration-service-override": "33.0.9",
+    "@codingame/monaco-vscode-dialogs-service-override": "^33.0.9",
+    "@codingame/monaco-vscode-editor-api": "33.0.9",
+    "@codingame/monaco-vscode-environment-service-override": "^33.0.9",
+    "@codingame/monaco-vscode-extension-api": "^33.0.9",
+    "@codingame/monaco-vscode-extensions-service-override": "33.0.9",
+    "@codingame/monaco-vscode-files-service-override": "33.0.9",
+    "@codingame/monaco-vscode-host-service-override": "^33.0.9",
+    "@codingame/monaco-vscode-language-detection-worker-service-override": "^33.0.9",
+    "@codingame/monaco-vscode-languages-service-override": "33.0.9",
+    "@codingame/monaco-vscode-lifecycle-service-override": "^33.0.9",
+    "@codingame/monaco-vscode-log-service-override": "^33.0.9",
+    "@codingame/monaco-vscode-markers-service-override": "33.0.9",
+    "@codingame/monaco-vscode-model-service-override": "33.0.9",
+    "@codingame/monaco-vscode-notifications-service-override": "^33.0.9",
+    "@codingame/monaco-vscode-output-service-override": "^33.0.9",
+    "@codingame/monaco-vscode-storage-service-override": "^33.0.9",
+    "@codingame/monaco-vscode-textmate-service-override": "33.0.9",
+    "@codingame/monaco-vscode-theme-defaults-default-extension": "33.0.9",
+    "@codingame/monaco-vscode-theme-service-override": "33.0.9",
+    "@codingame/monaco-vscode-typescript-basics-default-extension": "33.0.9",
+    "@codingame/monaco-vscode-typescript-language-features-default-extension": "33.0.9"
+  },
+  "devDependencies": {
+    "@codingame/esbuild-import-meta-url-plugin": "^1.0.3",
+    "vite": "^5.4.0"
+  }
+}
