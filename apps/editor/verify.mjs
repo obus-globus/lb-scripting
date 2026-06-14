@@ -189,7 +189,31 @@ ok((await page.evaluate(() => getComputedStyle(document.documentElement).getProp
 const bgDark = await editorBg();
 ok(bgDark !== bgLB && /30,\s*30,\s*3[0-9]/.test(bgDark), "Monaco editor background switched too (dark): " + bgDark);
 
+console.log("\n[7] go to definition (Ctrl/Cmd+click)");
+await boot();
+await page.evaluate(() => { const ex = window.__ide.categories().find((c) => c.id === "inject-ts").examples.find((e) => /always/i.test(e.name)); return window.__ide.createProject("inject-ts", ex.id); });
+const gtd = await page.evaluate(async () => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  window.__ide.openFile("main.ts");
+  const m = window.monaco.editor.getModels().find((mm) => mm.uri.toString().endsWith("/main.ts"));
+  const s = m.getValue();
+  // (a) the `Inject` token in `import { Inject } from "lb-inject"` → the library .d.ts
+  const ip = m.getPositionAt(s.indexOf("Inject", s.lastIndexOf("import", s.indexOf('from "lb-inject"'))) + 2);
+  let lib = null;
+  for (let i = 0; i < 40; i++) { lib = await window.__ide.gotoDefinition(ip.lineNumber, ip.column); if (lib.uri.includes("lb-inject")) break; await sleep(250); } // tolerate TS worker warm-up
+  // (b) a same-file symbol (SENTINEL usage → its const declaration)
+  window.__ide.openFile("main.ts");
+  const declLine = m.getPositionAt(s.indexOf("const SENTINEL")).lineNumber;
+  const up = m.getPositionAt(s.indexOf("SENTINEL", s.indexOf("getProperty(")) + 2);
+  let same = null;
+  for (let i = 0; i < 40; i++) { same = await window.__ide.gotoDefinition(up.lineNumber, up.column); if (same.uri.endsWith("/main.ts") && same.sel.startLineNumber === declLine) break; await sleep(200); }
+  return { libUri: lib.uri, libRO: lib.readOnly, sameUri: same.uri, sameLine: same.sel.startLineNumber, declLine };
+});
+ok(/lb-inject\/index\.d\.ts$/.test(gtd.libUri), "lb-inject import → jumps into the library .d.ts: " + gtd.libUri);
+ok(gtd.libRO === true, "library definition view is read-only");
+ok(gtd.sameUri.endsWith("/main.ts") && gtd.sameLine === gtd.declLine, "same-file symbol → jumps to its declaration (line " + gtd.declLine + ")");
+
 await browser.close();
 server.close();
 if (fails.length) { console.log("\nFAIL (" + fails.length + "):"); for (const f of fails) console.log("  - " + f); process.exit(1); }
-console.log("\nPASS — tabs + templates + build + isolation + persistence + share + themes.");
+console.log("\nPASS — tabs + templates + build + isolation + persistence + share + themes + gotodef.");

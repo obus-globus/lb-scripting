@@ -645,9 +645,74 @@ require(["vs/editor/editor.main"], async () => {
   // live TS status in the bottom bar: "checking…" while the language service
   // validates the active file, then the error/warning count (or "no problems").
   editor.onDidChangeModelContent(markChecking);
-  editor.onDidChangeModel(markChecking);
+  editor.onDidChangeModel(() => {
+    markChecking();
+    // library/typings views are read-only; project files stay editable
+    const m = editor.getModel();
+    editor.updateOptions({ readOnly: !!m && !m.uri.toString().startsWith("file:///" + proj.id + "/") });
+  });
   monaco.editor.onDidChangeMarkers((uris) => { const cur = editor && editor.getModel(); if (!cur) return; const u = cur.uri.toString(); if (uris.some((x) => x.toString() === u)) { clearTimeout(typeStatusTimer); refreshTypeStatus(); } });
   markChecking();
+
+  // "Go to Definition" (F12 + Ctrl/Cmd+click). This standalone Monaco build ships
+  // without the gotoDefinition contribution, and even with it the editor has no
+  // workbench to open another file — so we implement it: ask the TS worker for the
+  // definition, then navigate to a project file (editable) or open a library /
+  // typings .d.ts (e.g. `lb-inject`, `@wunk/...`) as a read-only view.
+  const libModels = new Map(); // uri string -> on-demand read-only model
+  // Lookup keyed by the *normalized* (URI-encoded, e.g. @ → %40) form, since the
+  // worker/Monaco hand us encoded URIs while the extraLib filePaths are literal.
+  const libByUri = new Map();
+  for (const l of baseExtraLibs) { try { libByUri.set(monaco.Uri.parse(l.filePath).toString(), l); } catch { /* */ } }
+  // Switch the editor to `resource` (project file or library view). Returns the
+  // now-active model on success, else null.
+  function openTarget(resource) {
+    const uri = resource.toString();
+    const prefix = "file:///" + proj.id + "/";
+    if (uri.startsWith(prefix)) {
+      const path = decodeURIComponent(uri.slice(prefix.length));
+      if (path in proj.files) { openFile(path); return editor.getModel(); }
+    }
+    let m = monaco.editor.getModel(resource) || libModels.get(uri);
+    if (!m) { const lib = libByUri.get(uri); if (lib) { m = monaco.editor.createModel(lib.content, "typescript", monaco.Uri.parse(lib.filePath)); libModels.set(uri, m); } }
+    if (m) { editor.setModel(m); return m; }
+    return null;
+  }
+  const revealSpan = (model, start, length) => {
+    try {
+      const a = model.getPositionAt(start), bcol = model.getPositionAt(start + (length || 0));
+      const range = { startLineNumber: a.lineNumber, startColumn: a.column, endLineNumber: bcol.lineNumber, endColumn: bcol.column };
+      editor.setSelection(range); editor.revealRangeInCenterIfOutsideViewport(range); editor.focus();
+    } catch { /* */ }
+  };
+  // Standalone go-to-definition can still route cross-model opens through here.
+  monaco.editor.registerEditorOpener({ openCodeEditor(_s, resource, sel) { const m = openTarget(resource); if (!m) return false; if (sel && typeof sel.startLineNumber === "number") { editor.setSelection(sel); editor.revealRangeInCenterIfOutsideViewport(sel); } editor.focus(); return true; } });
+  async function gotoDefinition(model, position) {
+    if (!model || !position) return;
+    try {
+      const getWorker = await monaco.languages.typescript.getTypeScriptWorker();
+      const client = await getWorker(model.uri);
+      const defs = await client.getDefinitionAtPosition(model.uri.toString(), model.getOffsetAt(position));
+      if (!defs || !defs.length) return;
+      const d = defs[0];
+      const span = d.textSpan || { start: 0, length: 0 };
+      const target = monaco.Uri.parse(d.fileName);
+      if (target.toString() === model.uri.toString()) { revealSpan(model, span.start, span.length); return; }
+      const tm = openTarget(target);
+      if (tm) revealSpan(tm, span.start, span.length);
+    } catch { /* */ }
+  }
+  editor.addCommand(monaco.KeyCode.F12, () => gotoDefinition(editor.getModel(), editor.getPosition()));
+  editor.onMouseDown((e) => {
+    const oe = e.event;
+    if ((oe.ctrlKey || oe.metaKey) && !oe.altKey && e.target && e.target.position && e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT) {
+      try { oe.preventDefault(); } catch { /* */ }
+      // defer out of Monaco's mouse dispatch — invoking the TS worker synchronously
+      // mid-dispatch deadlocks the worker channel
+      const model = editor.getModel(), pos = e.target.position;
+      setTimeout(() => gotoDefinition(model, pos), 0);
+    }
+  });
 
   // theme selector
   const themeSel = $("themeSel");
@@ -786,6 +851,7 @@ require(["vs/editor/editor.main"], async () => {
     activeContent: () => editor.getModel().getValue(),
     // in-page exercise of the share decode→validate→import path (no page reload)
     loadShareFragment: async (frag) => { let p = null; try { p = await decodeShare("share=" + frag); } catch { /* */ } if (p && validShare(p)) { await importShared(p); return { imported: true }; } return { imported: false }; },
+    gotoDefinition: async (line, col) => { await gotoDefinition(editor.getModel(), { lineNumber: line, column: col }); const m = editor.getModel(); return { uri: m.uri.toString(), readOnly: editor.getOption(monaco.editor.EditorOption.readOnly), sel: editor.getSelection() }; },
     themes: () => Object.keys(THEMES),
     theme: () => themeId,
     setTheme: (id) => applyTheme(id),
