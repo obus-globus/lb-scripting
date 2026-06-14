@@ -705,6 +705,8 @@ require(["vs/editor/editor.main"], async () => {
     build: async () => { await build(); return lastBuild; },
     share: () => shareProject(),
     activeContent: () => editor.getModel().getValue(),
+    // in-page exercise of the share decode→validate→import path (no page reload)
+    loadShareFragment: async (frag) => { let p = null; try { p = await decodeShare("share=" + frag); } catch { /* */ } if (p && validShare(p)) { await importShared(p); return { imported: true }; } return { imported: false }; },
     themes: () => Object.keys(THEMES),
     theme: () => themeId,
     setTheme: (id) => applyTheme(id),

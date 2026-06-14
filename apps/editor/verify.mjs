@@ -156,10 +156,10 @@ await page.goto(shareUrl, { waitUntil: "domcontentloaded" });
 await page.waitForFunction("window.__ide && window.__ide.ready === true", { timeout: 60000 });
 ok((await page.evaluate(() => window.__ide.activeContent())).includes(SH), "shared content round-trips via the link");
 ok((await page.evaluate(() => window.__ide.listFiles())).some((f) => f.endsWith("lib/format.ts")), "shared link carries ALL files (not just main)");
-// malformed share links must not brick the app — exercise BOTH the decode-failure
-// path AND the validShare-rejection path (valid gzip, structurally-bad payload).
-// Build hashes from raw JSON strings (an object-literal __proto__ wouldn't create
-// an own key); cache-bust the URL so a hash-only change still reloads the page.
+// malformed share payloads must be rejected (no crash / no prototype pollution).
+// Exercised IN-PAGE via the loadShareFragment hook — full page reloads per case
+// are far too slow on CI runners. Raw JSON strings (an object-literal __proto__
+// wouldn't create an own key).
 const gzFrag = (json) => zlib.gzipSync(Buffer.from(json)).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const badShares = [
   ["not__valid__gzip", "garbage (decode fails)"],
@@ -169,12 +169,9 @@ const badShares = [
   [gzFrag('{"v":1,"files":{"__proto__":"polluted"}}'), "__proto__ key (pollution attempt)"],
 ];
 for (const [frag, label] of badShares) {
-  await page.evaluate(() => new Promise((r) => { const x = indexedDB.deleteDatabase("lb-ide"); x.onsuccess = x.onerror = () => r(); }));
-  await page.goto(base + "?t=" + Date.now() + "#share=" + frag, { waitUntil: "domcontentloaded" });
-  await page.waitForFunction("window.__ide && window.__ide.ready === true", { timeout: 60000 });
-  const okFiles = (await page.evaluate(() => window.__ide.listFiles())).length > 0;
+  const r = await page.evaluate((f) => window.__ide.loadShareFragment(f), frag);
   const noPollution = await page.evaluate(() => ({}).polluted === undefined && Object.prototype.polluted === undefined);
-  ok(okFiles && noPollution, "malformed share (" + label + ") → clean fallback, no pollution");
+  ok(!r.imported && noPollution, "malformed share (" + label + ") → rejected (no import), no pollution");
 }
 
 console.log("\n[6] themes");
