@@ -15,7 +15,7 @@ const base = `http://127.0.0.1:${server.address().port}/`;
 console.log("serving", base);
 
 const exe = process.env.PUPPETEER_EXECUTABLE_PATH || ["/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium-browser", "/usr/bin/chromium"].find((p) => existsSync(p));
-const browser = await puppeteer.launch({ executablePath: exe, headless: true, protocolTimeout: 120000, args: ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"] });
+const browser = await puppeteer.launch({ executablePath: exe, headless: true, protocolTimeout: 300000, args: ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"] });
 const page = await browser.newPage();
 page.on("pageerror", (e) => console.log("  [pageerror]", e.message));
 
