@@ -369,8 +369,10 @@ async function gz(bytes) { return new Uint8Array(await new Response(new Blob([by
 async function gunzip(bytes) { return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer()); }
 
 async function encodeShare(p) {
-  const files = {}; for (const path of Object.keys(p.files)) if (!(p.aux || []).includes(path)) files[path] = p.files[path];
-  const payload = { v: 1, name: p.name, templateId: p.templateId, files, folders: p.folders || [], openTabs: (p.openTabs || []).filter((t) => t in files), active: files[p.active] ? p.active : Object.keys(files)[0] };
+  // include ALL files (source + supporting/aux) so the link is a faithful copy;
+  // carry the aux list so the "show supporting files" toggle still works.
+  const files = { ...p.files };
+  const payload = { v: 1, name: p.name, templateId: p.templateId, files, aux: (p.aux || []).filter((a) => a in files), folders: p.folders || [], openTabs: (p.openTabs || []).filter((t) => t in files), active: files[p.active] ? p.active : Object.keys(files)[0] };
   const data = new TextEncoder().encode(JSON.stringify(payload));
   return "share=" + b64uEnc(await gz(data));
 }
@@ -389,7 +391,8 @@ async function shareProject() {
   } catch (e) { log("share failed: " + (e && e.message || e), "e"); }
 }
 async function importShared(payload) {
-  proj = { id: uid(), name: payload.name || "Shared", templateId: payload.templateId || "shared", files: payload.files || {}, aux: [], folders: payload.folders || [], openTabs: (payload.openTabs && payload.openTabs.length ? payload.openTabs : [Object.keys(payload.files || {})[0]]).filter(Boolean), active: payload.active || Object.keys(payload.files || {})[0], updatedAt: Date.now() };
+  const files = payload.files || {};
+  proj = { id: uid(), name: payload.name || "Shared", templateId: payload.templateId || "shared", files, aux: (payload.aux || []).filter((a) => a in files), folders: payload.folders || [], openTabs: (payload.openTabs && payload.openTabs.length ? payload.openTabs : [Object.keys(files)[0]]).filter(Boolean), active: payload.active || Object.keys(files)[0], updatedAt: Date.now() };
   meta.ids.push(proj.id); meta.current = proj.id;
   await saveProject(); await saveMeta();
   disposeModels(); for (const path of Object.keys(proj.files)) if (!isAux(path)) ensureModel(path);
