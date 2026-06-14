@@ -230,7 +230,17 @@ ok(cfgBuild.includes('"on"'), "define from config is inlined (FLAG → \"on\")")
 ok((await page.evaluate(() => window.__ide.auxFiles())).includes("lbbuild.config.json"), "config persists as a supporting file (lbbuild.config.json)");
 ok((await page.evaluate(() => window.__ide.getBuildConfig().target)) === "es2022", "config exposes the esbuild knobs (target default es2022)");
 
+console.log("\n[9] preview tabs (VS Code single-click / pin)");
+await boot();
+await page.evaluate(() => window.__ide.createProject("default-ts", "multi-file"));
+await page.evaluate(() => window.__ide.openFilePreview("lib/format.ts"));
+const pv = await page.evaluate(() => ({ tabs: window.__ide.openTabs(), preview: window.__ide.previewState(), italic: !!document.querySelector("#ftabs .ftab.preview") }));
+ok(pv.preview && pv.preview.path === "lib/format.ts" && !pv.tabs.includes("lib/format.ts") && pv.italic, "single-click opens a preview tab (italic, not pinned): " + JSON.stringify(pv));
+await page.evaluate(() => window.__ide.setActiveValue("export const ORIGIN='x'; export function fmtPos(a,b,c){return ''+a+b+c;}"));
+const pinned = await page.evaluate(() => ({ preview: window.__ide.previewState(), tabs: window.__ide.openTabs() }));
+ok(pinned.preview === null && pinned.tabs.includes("lib/format.ts"), "editing a preview pins it: " + JSON.stringify(pinned));
+
 await browser.close();
 server.close();
 if (fails.length) { console.log("\nFAIL (" + fails.length + "):"); for (const f of fails) console.log("  - " + f); process.exit(1); }
-console.log("\nPASS — tabs + templates + build + isolation + persistence + share + themes + gotodef + buildcfg.");
+console.log("\nPASS — tabs + templates + build + isolation + persistence + share + themes + gotodef + buildcfg + preview.");

@@ -49,7 +49,16 @@ const models = new Map();                 // path -> monaco model (current proje
 let editor = null, saveTimer = null;
 let libView = null;                        // {uri,name} when viewing a read-only library/decl file
 const libFiles = new Map();                // uri -> {uri,name} declaration files shown under "Libraries"
-let openLib = () => {};                     // (uri) => open a library file read-only (wired in init)
+let openLib = () => {};                     // (uri,opts) => open a library file read-only (wired in init)
+// VS Code-style preview tabs: a single italic, reusable tab (explorer single-click
+// / go-to-def). Pinned by clicking it, double-clicking the file, or editing it.
+let preview = null;                        // {kind:"file",path} | {kind:"lib",uri,name} | null
+const pinnedLibs = [];                     // [{uri,name}] library tabs the user pinned
+const isPreviewFile = (p) => !!preview && preview.kind === "file" && preview.path === p;
+const isPreviewLib = (u) => !!preview && preview.kind === "lib" && preview.uri === u;
+const isPinnedLib = (u) => pinnedLibs.some((l) => l.uri === u);
+function pinFile(path) { if (proj.openTabs && !proj.openTabs.includes(path)) proj.openTabs.push(path); if (isPreviewFile(path)) preview = null; }
+function pinLib(lib) { if (!isPinnedLib(lib.uri)) pinnedLibs.push({ uri: lib.uri, name: lib.name }); if (isPreviewLib(lib.uri)) preview = null; }
 const builds = new Map();                  // projId -> { name, code } last build (per project)
 const currentBuild = () => (proj ? builds.get(proj.id) : null);
 function syncDownloadBtn() { const dl = $("download"); if (dl) dl.disabled = !currentBuild(); }
@@ -149,20 +158,23 @@ function ensureModel(path) {
   let m = models.get(path);
   if (!m) {
     m = monaco.editor.createModel(proj.files[path], langFor(path), uriFor(path));
-    m.onDidChangeContent(() => { proj.files[path] = m.getValue(); scheduleSave(); if (hotReloadFn) hotReloadFn(); });
+    m.onDidChangeContent(() => { proj.files[path] = m.getValue(); scheduleSave(); if (hotReloadFn) hotReloadFn(); if (isPreviewFile(path)) { pinFile(path); renderFtabs(); } });
     models.set(path, m);
   }
   return m;
 }
-function openFile(path) {
+function openFile(path, opts = {}) {
   // defend against opening a missing/undefined path (e.g. a malformed share or
   // an empty project) — fall back to the first file, or an empty editor.
   if (!path || !(path in proj.files)) path = Object.keys(proj.files)[0];
-  if (!path) { proj.active = null; editor.setModel(null); renderFiles(); renderFtabs(); return; }
+  if (!path) { proj.active = null; preview = null; editor.setModel(null); renderFiles(); renderFtabs(); return; }
   libView = null; // returning to a project file leaves any read-only library view
   proj.active = path;
   if (!proj.openTabs) proj.openTabs = [];
-  if (!proj.openTabs.includes(path)) proj.openTabs.push(path);
+  // preview (explorer single-click / go-to-def): a reusable italic tab, not pinned;
+  // anything else pins. Already-open files just activate.
+  if (opts.preview && !proj.openTabs.includes(path)) preview = { kind: "file", path };
+  else { if (!proj.openTabs.includes(path)) proj.openTabs.push(path); if (isPreviewFile(path)) preview = null; }
   // a supporting/types file (e.g. types/*.d.ts) is hidden unless the toggle is on —
   // turn it on so navigating to one actually reveals it in the tree
   if (isAux(path) && !showAux) setShowAux(true);
@@ -175,33 +187,49 @@ function openFile(path) {
 }
 function closeTab(path) {
   proj.openTabs = (proj.openTabs || []).filter((p) => p !== path);
-  if (proj.active === path) {
+  if (isPreviewFile(path)) preview = null;
+  if (!libView && proj.active === path) {
     const next = proj.openTabs[proj.openTabs.length - 1];
     if (next) openFile(next);
+    else if (preview && preview.kind === "file") openFile(preview.path, { preview: true });
     else { proj.active = null; editor.setModel(null); renderFiles(); renderFtabs(); scheduleSave(); }
   } else { renderFtabs(); scheduleSave(); }
 }
+function closeLibTab(uri) {
+  const i = pinnedLibs.findIndex((l) => l.uri === uri); if (i >= 0) pinnedLibs.splice(i, 1);
+  if (isPreviewLib(uri)) preview = null;
+  if (libView && libView.uri === uri) {
+    libView = null;
+    if (proj.active && proj.files[proj.active]) openFile(proj.active);
+    else { editor.setModel(null); renderFiles(); renderFtabs(); }
+  } else { renderFiles(); renderFtabs(); }
+}
 function renderFtabs() {
   const wrap = $("ftabs"); wrap.innerHTML = "";
-  if (libView) {
-    const tab = document.createElement("div"); tab.className = "ftab active"; tab.title = "read-only library / declaration file";
-    const label = document.createElement("span"); const lock = document.createElement("span"); lock.className = "dir"; lock.textContent = "🔒 "; label.appendChild(lock); label.appendChild(document.createTextNode(libView.name)); tab.appendChild(label);
-    const x = document.createElement("span"); x.className = "x"; x.textContent = "✕"; x.title = "close"; x.onclick = () => { if (proj.active && proj.files[proj.active]) openFile(proj.active); else { libView = null; renderFiles(); renderFtabs(); } };
-    tab.appendChild(x); wrap.appendChild(tab);
-  }
-  for (const path of proj.openTabs || []) {
-    if (!(path in proj.files)) continue;
-    const tab = document.createElement("div"); tab.className = "ftab" + (!libView && path === proj.active ? " active" : "");
+  const mkFile = (path, isPreview) => {
+    if (!(path in proj.files)) return;
+    const tab = document.createElement("div"); tab.className = "ftab" + (!libView && path === proj.active ? " active" : "") + (isPreview ? " preview" : "");
     const slash = path.lastIndexOf("/");
     const label = document.createElement("span");
     if (slash >= 0) { const dir = document.createElement("span"); dir.className = "dir"; dir.textContent = path.slice(0, slash + 1); label.appendChild(dir); label.appendChild(document.createTextNode(path.slice(slash + 1))); }
     else label.textContent = path;
-    label.onclick = () => { if (path !== proj.active) openFile(path); };
+    label.onclick = () => { if (isPreview) pinFile(path); openFile(path); }; // clicking a preview tab pins it
     tab.appendChild(label);
     const x = document.createElement("span"); x.className = "x"; x.textContent = "✕"; x.title = "close tab"; x.onclick = (e) => { e.stopPropagation(); closeTab(path); };
-    tab.appendChild(x);
-    wrap.appendChild(tab);
-  }
+    tab.appendChild(x); wrap.appendChild(tab);
+  };
+  const mkLib = (lib, isPreview) => {
+    const tab = document.createElement("div"); tab.className = "ftab" + (libView && libView.uri === lib.uri ? " active" : "") + (isPreview ? " preview" : "");
+    tab.title = "read-only library / declaration file";
+    const label = document.createElement("span"); const lock = document.createElement("span"); lock.className = "dir"; lock.textContent = "🔒 "; label.appendChild(lock); label.appendChild(document.createTextNode(lib.name));
+    label.onclick = () => { if (isPreview) pinLib(lib); openLib(lib.uri); };
+    tab.appendChild(label);
+    const x = document.createElement("span"); x.className = "x"; x.textContent = "✕"; x.title = "close"; x.onclick = (e) => { e.stopPropagation(); closeLibTab(lib.uri); };
+    tab.appendChild(x); wrap.appendChild(tab);
+  };
+  for (const path of proj.openTabs || []) mkFile(path, false);
+  for (const lib of pinnedLibs) mkLib(lib, false);
+  if (preview) { if (preview.kind === "file") mkFile(preview.path, true); else mkLib(preview, true); }
 }
 
 const collapsed = new Set(); // folder paths the user has collapsed (per session)
@@ -283,7 +311,7 @@ function allDirPaths() {
   const out = []; const walk = (n) => { for (const [, d] of n.dirs) { out.push(d.path); walk(d); } }; walk(buildTree()); return out;
 }
 
-function tvRow({ depth, twisty, iconHtml, label, isActive, isRoot, dim, onClick, actions }) {
+function tvRow({ depth, twisty, iconHtml, label, isActive, isRoot, dim, onClick, onDblClick, actions }) {
   const row = document.createElement("div");
   row.className = "tv-row" + (isActive ? " active" : "") + (isRoot ? " root" : "") + (dim ? " dim" : "");
   for (let i = 0; i < depth; i++) { const ig = document.createElement("span"); ig.className = "ig"; row.appendChild(ig); }
@@ -297,6 +325,7 @@ function tvRow({ depth, twisty, iconHtml, label, isActive, isRoot, dim, onClick,
     row.appendChild(acts);
   }
   row.onclick = onClick;
+  if (onDblClick) row.ondblclick = onDblClick;
   return row;
 }
 
@@ -332,7 +361,7 @@ function renderFiles() {
     for (const f of node.files.sort((a, b) => a.name.localeCompare(b.name))) {
       wrap.appendChild(tvRow({
         depth, twisty: "", iconHtml: fileIcon(f.name), label: f.name, isActive: !libView && f.path === proj.active, dim: isAux(f.path),
-        onClick: () => openFile(f.path),
+        onClick: () => openFile(f.path, { preview: true }), onDblClick: () => openFile(f.path),
         actions: [{ title: "Delete", icon: SVG.trash, run: () => deleteFile(f.path) }],
       }));
     }
@@ -353,7 +382,7 @@ function renderFiles() {
           if (isOpen) renderLib(dir, depth + 1);
         }
         for (const f of node.files.sort((a, b) => a.name.localeCompare(b.name)))
-          wrap.appendChild(tvRow({ depth, twisty: "", iconHtml: fileIcon(f.name), label: f.name, dim: true, isActive: !!libView && libView.uri === f.uri, onClick: () => openLib(f.uri) }));
+          wrap.appendChild(tvRow({ depth, twisty: "", iconHtml: fileIcon(f.name), label: f.name, dim: true, isActive: !!libView && libView.uri === f.uri, onClick: () => openLib(f.uri), onDblClick: () => openLib(f.uri, { pin: true }) }));
       };
       renderLib(buildLibTree(), 1);
     }
@@ -843,23 +872,24 @@ require(["vs/editor/editor.main"], async () => {
   for (const l of baseExtraLibs) { try { libByUri.set(monaco.Uri.parse(l.filePath).toString(), l); } catch { /* */ } }
   // Switch the editor to `resource` (project file or library view). Returns the
   // now-active model on success, else null.
-  function openTarget(resource) {
+  function openTarget(resource, opts = {}) {
     const uri = resource.toString();
     const prefix = "file:///" + proj.id + "/";
     if (uri.startsWith(prefix)) {
       const path = decodeURIComponent(uri.slice(prefix.length));
-      if (path in proj.files) { openFile(path); return editor.getModel(); }
+      if (path in proj.files) { openFile(path, { preview: !opts.pin }); return editor.getModel(); }
     }
     let m = monaco.editor.getModel(resource) || libModels.get(uri);
     if (!m) { const lib = libByUri.get(uri); if (lib) { m = monaco.editor.createModel(lib.content, "typescript", monaco.Uri.parse(lib.filePath)); libModels.set(uri, m); } }
     if (m) {
-      // a library / unlisted file: read-only, surfaced as a transient locked tab,
-      // and the Explorer selection is cleared (it isn't a project file)
+      // a library / unlisted file: read-only. Surfaced as a preview (italic) tab
+      // unless pinned, and revealed in the Type Libraries tree.
       const decoded = decodeURIComponent(uri.replace(/^file:\/\/\//, "")).replace(/^node_modules\//, "").replace(/^@types\//, "");
       const name = decoded.split("/").slice(-2).join("/");
       libView = { uri, name };
-      libFiles.set(uri, { uri, name }); // surface it under the Explorer's node_modules tree
-      revealLibPath(uri);               // expand node_modules + ancestor folders to it
+      libFiles.set(uri, { uri, name });
+      if (opts.pin) pinLib({ uri, name }); else if (!isPinnedLib(uri)) preview = { kind: "lib", uri, name };
+      revealLibPath(uri);
       editor.setModel(m); renderFiles(); renderFtabs();
       const row = $("files").querySelector(".tv-row.active"); if (row) row.scrollIntoView({ block: "nearest" });
       return m;
@@ -891,7 +921,7 @@ require(["vs/editor/editor.main"], async () => {
     } catch { /* */ }
   }
   // let the Explorer's "Libraries" rows re-open a declaration file read-only
-  openLib = (uri) => { const m = openTarget(monaco.Uri.parse(uri)); if (!m && libFiles.has(uri)) { libFiles.delete(uri); renderFiles(); } };
+  openLib = (uri, opts) => { const m = openTarget(monaco.Uri.parse(uri), opts); if (!m && libFiles.has(uri)) { libFiles.delete(uri); renderFiles(); } };
   // populate node_modules with EVERY declaration file the editor loaded — the
   // whole @wunk types closure + the lb-inject / lb-repl module decls — so the
   // full type tree is browsable (rendered lazily: collapsed folders cost nothing)
@@ -1061,6 +1091,9 @@ require(["vs/editor/editor.main"], async () => {
     writeFile: (path, content) => { proj.files[path] = content; openFile(path); },
     openFile: (path) => openFile(path),
     openTabs: () => (proj.openTabs || []).slice(),
+    openFilePreview: (path) => openFile(path, { preview: true }),
+    previewState: () => (preview ? (preview.kind === "file" ? { kind: "file", path: preview.path } : { kind: "lib", name: preview.name }) : null),
+    pinnedLibs: () => pinnedLibs.map((l) => l.name),
     closeTab: (path) => closeTab(path),
     auxFiles: () => (proj.aux || []).slice(),
     treeLabels: () => [...document.querySelectorAll("#files .tv-row .nm")].map((n) => n.textContent),
