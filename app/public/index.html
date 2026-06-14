@@ -21,6 +21,8 @@
     #bar button:hover { background:var(--acc2); }
     #bar button.ghost { background:#3a3a3a; }
     #bar button.ghost:hover { background:#484848; }
+    #bar button.ghost.on { background:#0e639c; color:#fff; }
+    #bar button.ghost.on:hover { background:#1177bb; }
     #bar button:disabled { opacity:.5; cursor:default; }
     /* project tab bar */
     #tabs { display:flex; align-items:stretch; gap:2px; background:#1b1b1b; border-bottom:1px solid #111; padding:0 6px; overflow-x:auto; min-height:34px; }
@@ -94,6 +96,8 @@
       <button id="share" class="ghost">share</button>
       <button id="build">build</button>
       <button id="runClient" style="display:none; background:#2d7d33">build &amp; run in client</button>
+      <button id="autoRun" class="ghost" style="display:none" title="rebuild &amp; reload in client on every edit">hot-reload: off</button>
+      <button id="dbg" class="ghost" style="display:none" title="load with a GraalJS inspector (chrome devtools)">debug: off</button>
       <button id="download" class="ghost" disabled>download .mjs</button>
     </div>
     <div id="tabs"></div>

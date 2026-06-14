@@ -36,6 +36,8 @@ let baseExtraLibs = [];
 let meta = { ids: [], current: null };   // open project tabs + selection
 let proj = null;                          // current project { id, name, templateId, files, active }
 let bridgeOn = false;                     // talking to the in-client host (lb-ide-host)
+let autoRun = false, debugOn = false;     // hot-reload + debug toggles (in-client)
+let hotReloadFn = null, hotTimer = null;
 const models = new Map();                 // path -> monaco model (current project only)
 let editor = null, lastBuild = null, saveTimer = null;
 
@@ -61,7 +63,7 @@ function ensureModel(path) {
   let m = models.get(path);
   if (!m) {
     m = monaco.editor.createModel(proj.files[path], langFor(path), uriFor(path));
-    m.onDidChangeContent(() => { proj.files[path] = m.getValue(); scheduleSave(); });
+    m.onDidChangeContent(() => { proj.files[path] = m.getValue(); scheduleSave(); if (hotReloadFn) hotReloadFn(); });
     models.set(path, m);
   }
   return m;
@@ -488,8 +490,8 @@ require(["vs/editor/editor.main"], async () => {
       const r = await fetch(BASE + "api/ping", { method: "GET" });
       if (!(r.ok && (await r.json()).ok)) return;
       bridgeOn = true;
-      $("runClient").style.display = "";
-      log("connected to LiquidBounce (in-client) — projects persist on disk; 'build & run in client' enabled", "d");
+      $("runClient").style.display = ""; $("autoRun").style.display = ""; $("dbg").style.display = "";
+      log("connected to LiquidBounce (in-client) — projects persist on disk; run/hot-reload/debug enabled", "d");
       // pull any projects saved on disk (durable across CEF sessions) into the tabs
       try {
         const disk = await fetch(BASE + "api/projects").then((x) => x.json());
@@ -501,17 +503,21 @@ require(["vs/editor/editor.main"], async () => {
       } catch { /* */ }
     } catch { /* not in-client */ }
   })();
-  $("runClient").onclick = async () => {
-    $("runClient").disabled = true;
-    try {
-      await build();
-      if (!lastBuild) return;
-      const res = await fetch(BASE + "api/load", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: proj.name, mjs: lastBuild.code }) }).then((r) => r.json());
-      if (res.ok) log("✓ loaded into client as " + res.name, "s");
-      else log("✗ load failed: " + (res.error || "?"), "e");
-    } catch (e) { log("✗ run-in-client failed: " + (e && e.message || e), "e"); }
-    finally { $("runClient").disabled = false; }
-  };
+  async function loadToClient() {
+    await build();
+    if (!lastBuild) return;
+    const res = await fetch(BASE + "api/load", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: proj.name, mjs: lastBuild.code, debug: debugOn }) }).then((r) => r.json());
+    if (res.ok) {
+      log("✓ loaded into client as " + res.name + (res.debugPort ? " · inspector on :" + res.debugPort : ""), "s");
+      if (res.debugPort) log("attach a debugger: open chrome://inspect (or VS Code) → localhost:" + res.debugPort, "d");
+    } else log("✗ load failed: " + (res.error || "?"), "e");
+  }
+  $("runClient").onclick = async () => { $("runClient").disabled = true; try { await loadToClient(); } catch (e) { log("✗ run-in-client failed: " + (e && e.message || e), "e"); } finally { $("runClient").disabled = false; } };
+
+  // hot reload: rebuild + reload in client on edits (debounced) when enabled
+  hotReloadFn = () => { clearTimeout(hotTimer); hotTimer = setTimeout(() => { if (autoRun && bridgeOn) loadToClient().catch(() => {}); }, 900); };
+  $("autoRun").onclick = () => { autoRun = !autoRun; $("autoRun").textContent = "hot-reload: " + (autoRun ? "on" : "off"); $("autoRun").classList.toggle("on", autoRun); if (autoRun) loadToClient().catch(() => {}); };
+  $("dbg").onclick = () => { debugOn = !debugOn; $("dbg").textContent = "debug: " + (debugOn ? "on" : "off"); $("dbg").classList.toggle("on", debugOn); };
   $("addFile").onclick = () => addFileAt("");
   $("addFolder").onclick = () => addFolderAt("");
   $("collapseAll").onclick = () => { for (const d of allDirPaths()) collapsed.add(d); renderFiles(); };

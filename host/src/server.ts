@@ -164,8 +164,8 @@ export function startServer(opts: ServerOpts): boolean {
       if (method === "POST" && path === "/api/load") {
         let res: LoadResult = { ok: false, error: "bad request" };
         try {
-          const p = JSON.parse(body) as { name?: string; mjs?: string };
-          if (p && typeof p.mjs === "string") res = runOnMain<LoadResult>(() => loadBuiltScript(p.name || "script", p.mjs as string), { ok: false, error: "main-thread timeout" });
+          const p = JSON.parse(body) as { name?: string; mjs?: string; debug?: boolean; port?: number };
+          if (p && typeof p.mjs === "string") res = runOnMain<LoadResult>(() => loadBuiltScript(p.name || "script", p.mjs as string, { debug: !!p.debug, port: p.port }), { ok: false, error: "main-thread timeout" });
         } catch { /* */ }
         writeText(outs, res.ok ? 200 : 500, res.ok ? "OK" : "Error", MIME.json, JSON.stringify(res)); sock.close(); return;
       }

@@ -13,7 +13,8 @@ declare const Java: { type(name: string): unknown };
 type Jany = { [k: string]: unknown } & ((...a: unknown[]) => unknown);
 const T = (n: string): Jany | null => { try { return Java.type(n) as unknown as Jany; } catch { return null; } };
 
-export interface LoadResult { ok: boolean; name?: string; error?: string }
+export interface LoadResult { ok: boolean; name?: string; error?: string; debugPort?: number }
+export interface LoadOpts { debug?: boolean; port?: number }
 
 interface PolyScript { scriptName?: string; enable?: () => void; disable?: () => void }
 interface SM {
@@ -30,14 +31,17 @@ function scriptManager(): SM | null {
   return inst ?? null;
 }
 
-/** A no-debug ScriptDebugOptions(false, <proto>, false, false, 0). The protocol
- *  is irrelevant while enabled=false; we grab any enum constant. */
-function noDebugOptions(): unknown {
+/** ScriptDebugOptions: disabled by default, or an enabled GraalJS INSPECT
+ *  (chrome devtools) listener on `port` when debug is requested. */
+function debugOptions(debug?: { port?: number }): unknown {
   const SDO = T("net.ccbluex.liquidbounce.script.ScriptDebugOptions");
   const DP = T("net.ccbluex.liquidbounce.script.DebugProtocol");
-  const proto = DP && ((DP as unknown as { DAP?: unknown }).DAP ?? (DP as unknown as { INSPECT?: unknown }).INSPECT);
-  if (!SDO || !proto) return null;
-  return new (SDO as unknown as new (a: boolean, b: unknown, c: boolean, d: boolean, e: number) => unknown)(false, proto, false, false, 0);
+  if (!SDO || !DP) return null;
+  const INSPECT = (DP as unknown as { INSPECT?: unknown }).INSPECT;
+  const DAP = (DP as unknown as { DAP?: unknown }).DAP;
+  const Ctor = SDO as unknown as new (a: boolean, b: unknown, c: boolean, d: boolean, e: number) => unknown;
+  if (debug) return new Ctor(true, INSPECT ?? DAP, false, false, debug.port ?? 9229);
+  return new Ctor(false, INSPECT ?? DAP, false, false, 0);
 }
 
 /** sanitize a user-supplied script name into a safe single-segment filename. */
@@ -47,7 +51,7 @@ export function safeName(name: string): string {
 }
 
 /** Write <name>.mjs into the scripts dir and (re)load it. Returns a result. */
-export function loadBuiltScript(name: string, mjs: string): LoadResult {
+export function loadBuiltScript(name: string, mjs: string, opts?: LoadOpts): LoadResult {
   try {
     const sm = scriptManager();
     if (!sm) return { ok: false, error: "ScriptManager unavailable" };
@@ -71,11 +75,12 @@ export function loadBuiltScript(name: string, mjs: string): LoadResult {
     const bytes = (new (T("java.lang.String") as unknown as new (s: string) => { getBytes(cs: string): unknown })(mjs)).getBytes("UTF-8");
     (Files.write as (p: unknown, b: unknown, o?: unknown) => unknown)(target, bytes);
 
-    // load + enable it
+    // load + enable it (optionally with a GraalJS inspector listener)
+    const port = opts?.port ?? 9229;
     const file = new (FileT as unknown as new (p: string) => unknown)(rootPath + "/" + fname);
-    const ps = sm.loadScript(file, "javascript", noDebugOptions());
+    const ps = sm.loadScript(file, "javascript", debugOptions(opts?.debug ? { port } : undefined));
     try { ps && ps.enable && ps.enable(); } catch { /* */ }
-    return { ok: true, name: fname };
+    return { ok: true, name: fname, debugPort: opts?.debug ? port : undefined };
   } catch (e) {
     return { ok: false, error: String((e as { message?: string })?.message ?? e) };
   }
