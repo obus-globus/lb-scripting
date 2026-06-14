@@ -135,15 +135,28 @@ build → downloadable .mjs (TS and JS)              ─ spikes/esbuild-wasm-bui
 MVP: editor + build + persistence + isolation      ─ app/                       ✅
 ```
 
-### [`app/`](app/) — the MVP (✅ verified headless)
+Two working IDEs were built — same editor/persistence, different build engine:
 
-Monaco + typings + esbuild-wasm + per-session IndexedDB persistence in one page.
-`npm install && npm run serve`. All features asserted by `app/verify.mjs`:
-default project type-checks (cross-file resolves), live diagnostics, build →
-downloadable self-contained `.mjs`, autosave survives reload, and a different
-`#session` gets its own isolated files.
+### [`app/`](app/) — esbuild-wasm MVP (✅ verified headless, deployed)
+
+Monaco + typings + **esbuild-wasm** + per-session IndexedDB persistence in one
+page. Fully self-hosted, MIT-only, no external deps. All features asserted by
+`app/verify.mjs`. **Live:** `https://host.example/lb-ide/`
 
 ![MVP](app/docs/screenshot.png)
+
+### [`app-webcontainers/`](app-webcontainers/) — WebContainers edition (✅ verified, deployed)
+
+Same IDE, but the build runs the **real Node + npm + native esbuild toolchain**
+inside a StackBlitz WebContainer in-tab, with a live terminal. Needs cross-origin
+isolation (COOP/COEP) and a secure context; npm installs are StackBlitz-proxied
+(licensing caveat). Asserted by `app-webcontainers/verify.mjs`. **Live:**
+`https://host.example/lb-ide-wc/`
+
+![WC](app-webcontainers/docs/screenshot.png)
+
+Finding: **native esbuild runs in WebContainers**, so the template's actual
+native-esbuild build works in-tab — not just a wasm reimplementation.
 
 The only remaining piece is **persistence** (IndexedDB / File System Access API)
 — a standard browser API, not a research risk. What stays intrinsically out of
