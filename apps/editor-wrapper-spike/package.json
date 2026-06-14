@@ -1,0 +1,15 @@
+{
+  "name": "lb-ide-wrapper-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "preview": "vite preview --port 8086"
+  },
+  "dependencies": {
+    "@codingame/monaco-vscode-typescript-basics-default-extension": "^20.2.1",
+    "@codingame/monaco-vscode-typescript-language-features-default-extension": "^20.2.1",
+    "monaco-editor-wrapper": "^6.12.0",
+    "vite": "^5.4.21"
+  }
+}
