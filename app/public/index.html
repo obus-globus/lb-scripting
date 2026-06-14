@@ -5,42 +5,49 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>LB Script IDE</title>
   <style>
-    :root { --bg:#1e1e1e; --bg2:#252526; --bg3:#2d2d2d; --fg:#d4d4d4; --acc:#0e639c; --acc2:#1177bb; --err:#f48771; --ok:#89d185; }
+    /* themeable design tokens — overridden at runtime by the theme system */
+    :root {
+      --bg:#1e1e1e; --bg2:#252526; --bg3:#2d2d2d; --bg4:#1b1b1b; --fg:#d4d4d4; --fgdim:#888;
+      --acc:#0e639c; --acc2:#1177bb; --err:#f48771; --ok:#89d185;
+      --hover:#2a2d2e; --sel:#094771; --border:#111; --glassrgb:30,30,33;
+      --font: ui-monospace, "SF Mono", Menlo, monospace;
+    }
     * { box-sizing: border-box; }
-    html, body { margin:0; height:100%; font-family: ui-monospace, "SF Mono", Menlo, monospace; background:var(--bg); color:var(--fg); }
+    html, body { margin:0; height:100%; font-family: var(--font); background:var(--bg); color:var(--fg); }
     /* in-game translucency (?opacity=NN) — show the game crisply behind the IDE */
     html.translucent, html.translucent body, html.translucent #editor { background:transparent !important; }
     html.translucent #bar, html.translucent #tabs, html.translucent #ftabs, html.translucent #log,
-    html.translucent #side, html.translucent #sideHead { background-color: rgba(30,30,33, var(--a, .85)) !important; }
+    html.translucent #side, html.translucent #sideHead { background-color: rgba(var(--glassrgb), var(--a, .85)) !important; }
     html.translucent .monaco-editor, html.translucent .monaco-editor-background,
     html.translucent .monaco-editor .margin { background:transparent !important; }
     #app { display:grid; grid-template-rows:auto auto auto 1fr auto; height:100%; }
-    #bar { display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg2); border-bottom:1px solid #111; font-size:13px; }
+    #bar { display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg2); border-bottom:1px solid var(--border); font-size:13px; }
     #bar .spacer { flex:1; }
     #bar button { font:inherit; background:var(--acc); color:#fff; border:0; border-radius:4px; padding:5px 10px; cursor:pointer; }
     #bar button:hover { background:var(--acc2); }
-    #bar button.ghost { background:#3a3a3a; }
-    #bar button.ghost:hover { background:#484848; }
-    #bar button.ghost.on { background:#0e639c; color:#fff; }
-    #bar button.ghost.on:hover { background:#1177bb; }
+    #bar button.ghost { background:var(--bg3); color:var(--fg); }
+    #bar button.ghost:hover { background:var(--hover); }
+    #bar button.ghost.on { background:var(--acc); color:#fff; }
+    #bar button.ghost.on:hover { background:var(--acc2); }
     #bar button:disabled { opacity:.5; cursor:default; }
+    #themeSel { font:inherit; font-size:12px; background:var(--bg3); color:var(--fg); border:1px solid var(--border); border-radius:4px; padding:3px 6px; cursor:pointer; }
     /* project tab bar */
-    #tabs { display:flex; align-items:stretch; gap:2px; background:#1b1b1b; border-bottom:1px solid #111; padding:0 6px; overflow-x:auto; min-height:34px; }
+    #tabs { display:flex; align-items:stretch; gap:2px; background:var(--bg4); border-bottom:1px solid var(--border); padding:0 6px; overflow-x:auto; min-height:34px; }
     .ptab { display:flex; align-items:center; gap:8px; padding:6px 10px; font-size:12px; cursor:pointer; color:#aaa; border-top:2px solid transparent; white-space:nowrap; }
     .ptab:hover { background:var(--bg3); }
     .ptab.active { background:var(--bg); color:#fff; border-top-color:var(--acc2); }
     .ptab .x { opacity:.45; } .ptab .x:hover { opacity:1; color:var(--err); }
     .ptab .tmpl { font-size:10px; color:#6a6; }
     /* file tab bar (open editors in the current project) */
-    #ftabs { display:flex; align-items:stretch; gap:1px; background:#161616; border-bottom:1px solid #111; padding:0 6px; overflow-x:auto; min-height:30px; }
+    #ftabs { display:flex; align-items:stretch; gap:1px; background:var(--bg4); border-bottom:1px solid var(--border); padding:0 6px; overflow-x:auto; min-height:30px; }
     #ftabs:empty { display:none; }
     .ftab { display:flex; align-items:center; gap:8px; padding:4px 9px; font-size:12px; cursor:pointer; color:#9a9a9a; border-right:1px solid #111; white-space:nowrap; }
     .ftab:hover { background:var(--bg3); color:#ccc; }
     .ftab.active { background:var(--bg); color:#fff; }
     .ftab .dir { color:#666; }
     .ftab .x { opacity:.4; } .ftab:hover .x { opacity:.7; } .ftab .x:hover { opacity:1; color:var(--err); }
-    #newProj { align-self:center; margin-left:4px; background:#3a3a3a; color:#fff; border:0; border-radius:4px; padding:4px 9px; font:inherit; font-size:13px; cursor:pointer; }
-    #newProj:hover { background:#484848; }
+    #newProj { align-self:center; margin-left:4px; background:var(--bg3); color:#fff; border:0; border-radius:4px; padding:4px 9px; font:inherit; font-size:13px; cursor:pointer; }
+    #newProj:hover { background:var(--hover); }
     /* template menu */
     #tmplMenu, #tmplSub { position:fixed; z-index:50; background:var(--bg2); border:1px solid #111; border-radius:6px; box-shadow:0 6px 24px #000a; padding:4px; display:none; }
     #tmplMenu { min-width:200px; }
@@ -60,13 +67,13 @@
     #sideHead button { font:inherit; background:transparent; color:#c5c5c5; border:0; border-radius:5px; width:22px; height:22px; padding:0; cursor:pointer; display:flex; align-items:center; justify-content:center; }
     #sideHead button:hover { background:#ffffff1a; }
     #sideHead button svg { width:16px; height:16px; }
-    #sideHead button.on { background:#0e639c; color:#fff; }
-    #sideHead button.on:hover { background:#1177bb; }
+    #sideHead button.on { background:var(--acc); color:#fff; }
+    #sideHead button.on:hover { background:var(--acc2); }
     /* VS Code-style tree rows */
     .tv-row { display:flex; align-items:center; height:22px; padding-right:6px; cursor:pointer; color:#cccccc; white-space:nowrap; user-select:none; }
-    .tv-row:hover { background:#2a2d2e; }
-    .tv-row.active { background:#094771; }
-    #side:focus-within .tv-row.active { background:#094771; }
+    .tv-row:hover { background:var(--hover); }
+    .tv-row.active { background:var(--sel); }
+    #side:focus-within .tv-row.active { background:var(--sel); }
     .tv-row .ig { width:8px; align-self:stretch; flex:none; box-shadow: inset 1px 0 0 #ffffff12; }
     .tv-row .tw { width:16px; height:22px; flex:none; display:flex; align-items:center; justify-content:center; color:#c5c5c5; }
     .tv-row .tw svg { width:16px; height:16px; transition:transform .08s ease; }
@@ -89,11 +96,11 @@
     #log .d { color:#888; }
     #status { font-size:12px; color:#888; }
     /* REPL panel */
-    #repl { display:none; position:absolute; left:0; right:0; bottom:0; height:46%; background:#1b1b1b; border-top:2px solid #0e639c; z-index:40; flex-direction:column; }
+    #repl { display:none; position:absolute; left:0; right:0; bottom:0; height:46%; background:var(--bg2); border-top:2px solid var(--acc); z-index:40; flex-direction:column; }
     #repl.open { display:flex; }
-    #replHead { display:flex; align-items:center; gap:8px; padding:6px 10px; font-size:13px; background:#252526; border-bottom:1px solid #111; }
-    #replHead button { font:inherit; background:#0e639c; color:#fff; border:0; border-radius:4px; padding:4px 10px; cursor:pointer; }
-    #replHead button.ghost { background:#3a3a3a; }
+    #replHead { display:flex; align-items:center; gap:8px; padding:6px 10px; font-size:13px; background:var(--bg2); border-bottom:1px solid var(--border); }
+    #replHead button { font:inherit; background:var(--acc); color:#fff; border:0; border-radius:4px; padding:4px 10px; cursor:pointer; }
+    #replHead button.ghost { background:var(--bg3); }
     #replHead button.ghost.on { background:#2d7d33; color:#fff; }
     #replEditor { flex:1; min-height:0; }
     #replOut { height:38%; overflow:auto; padding:6px 10px; font-size:12px; white-space:pre-wrap; border-top:1px solid #111; background:#141414; }
@@ -104,6 +111,7 @@
   <div id="app">
     <div id="bar">
       <strong>LB Script IDE</strong>
+      <select id="themeSel" title="editor theme"></select>
       <span class="spacer"></span>
       <span id="status">booting…</span>
       <button id="rename" class="ghost">rename</button>

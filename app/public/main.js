@@ -510,6 +510,37 @@ async function build() {
 }
 function download() { if (!lastBuild) return; const blob = new Blob([lastBuild.code], { type: "text/javascript" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = lastBuild.name; a.click(); URL.revokeObjectURL(a.href); }
 
+// ---------------------------------------------------------------- themes
+// Each theme drives the CSS design tokens + a Monaco color theme. The
+// LiquidBounce theme uses LB's real palette (flat #4677ff accent, near-black
+// surfaces, Inter, status reds/greens) — see docs.
+const THEMES = {
+  dark: {
+    name: "Dark",
+    editorBg: "#1e1e21",
+    vars: { bg: "#1e1e1e", bg2: "#252526", bg3: "#2d2d2d", bg4: "#1b1b1b", fg: "#d4d4d4", fgdim: "#888", acc: "#0e639c", acc2: "#1177bb", err: "#f48771", ok: "#89d185", hover: "#2a2d2e", sel: "#094771", border: "#111", glassrgb: "30,30,33", font: 'ui-monospace, "SF Mono", Menlo, monospace' },
+    monaco: { base: "vs-dark", colors: {} },
+  },
+  liquidbounce: {
+    name: "LiquidBounce",
+    editorBg: "#0a0c10",
+    vars: { bg: "#050608", bg2: "#0c0e13", bg3: "#171a21", bg4: "#0a0c10", fg: "#ffffff", fgdim: "#8b93a7", acc: "#4677ff", acc2: "#5b86ff", err: "#fc4130", ok: "#4dac68", hover: "#ffffff14", sel: "#4677ff40", border: "#1b2030", glassrgb: "5,6,8", font: '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' },
+    monaco: { base: "vs-dark", colors: { "editor.background": "#0a0c10", "editor.lineHighlightBackground": "#4677ff12", "editor.selectionBackground": "#4677ff44", "editorCursor.foreground": "#4677ff", "editorLineNumber.foreground": "#39414f", "editorLineNumber.activeForeground": "#4677ff", "focusBorder": "#4677ff" } },
+  },
+};
+let themeId = "dark";
+let curGlassAlpha = 1; // <1 in-game (?opacity); blends the editor bg with the game
+function applyTheme(id) {
+  const t = THEMES[id] || THEMES.dark; themeId = THEMES[id] ? id : "dark";
+  const r = document.documentElement;
+  for (const [k, v] of Object.entries(t.vars)) r.style.setProperty("--" + k, v);
+  const colors = { ...t.monaco.colors };
+  if (curGlassAlpha < 1) colors["editor.background"] = (t.editorBg || "#1e1e21") + Math.round(curGlassAlpha * 255).toString(16).padStart(2, "0");
+  monaco.editor.defineTheme("lb-active", { base: t.monaco.base, inherit: true, rules: [], colors });
+  monaco.editor.setTheme("lb-active");
+  try { localStorage.setItem("lb-ide:theme", themeId); } catch { /* */ }
+}
+
 // ---------------------------------------------------------------- init
 require(["vs/editor/editor.main"], async () => {
   setStatus("loading templates + typings…");
@@ -527,20 +558,22 @@ require(["vs/editor/editor.main"], async () => {
   configureTS(monaco.languages.typescript.javascriptDefaults, true);
 
   // In-game translucency: ?opacity=NN (20–100). <100 → see the game behind.
-  let theme = "vs-dark";
   try {
     const op = Math.max(20, Math.min(100, parseInt(new URLSearchParams(location.search).get("opacity") || "100", 10) || 100));
-    if (op < 100) {
-      const a = op / 100;
-      document.documentElement.style.setProperty("--a", String(a));
-      document.documentElement.classList.add("translucent");
-      const hex = Math.round(a * 255).toString(16).padStart(2, "0");
-      monaco.editor.defineTheme("lb-glass", { base: "vs-dark", inherit: true, rules: [], colors: { "editor.background": "#1e1e21" + hex } });
-      theme = "lb-glass";
-    }
+    if (op < 100) { curGlassAlpha = op / 100; document.documentElement.style.setProperty("--a", String(curGlassAlpha)); document.documentElement.classList.add("translucent"); }
   } catch { /* */ }
+  // stored choice wins; else a ?theme= default (the host opens with LiquidBounce); else Dark
+  themeId = (() => { try { return localStorage.getItem("lb-ide:theme") || new URLSearchParams(location.search).get("theme") || "dark"; } catch { return "dark"; } })();
+  if (!THEMES[themeId]) themeId = "dark";
 
-  editor = monaco.editor.create($("editor"), { theme, automaticLayout: true, fontSize: 13, minimap: { enabled: false } });
+  editor = monaco.editor.create($("editor"), { theme: "vs-dark", automaticLayout: true, fontSize: 13, minimap: { enabled: false } });
+  applyTheme(themeId);
+
+  // theme selector
+  const themeSel = $("themeSel");
+  for (const [id, t] of Object.entries(THEMES)) { const o = document.createElement("option"); o.value = id; o.textContent = t.name; themeSel.appendChild(o); }
+  themeSel.value = themeId;
+  themeSel.onchange = () => applyTheme(themeSel.value);
 
   meta = (await dbGet(M_STORE, "open")) || { ids: [], current: null };
   const wanted = location.hash.replace(/^#/, "");
@@ -614,7 +647,7 @@ require(["vs/editor/editor.main"], async () => {
     const model = monaco.editor.createModel(
       '/// <reference types="@wunk/lb-script-api-types/ambient" />\n// runs in the client — the last expression is shown. Ctrl/Cmd+Enter.\nmc.player ? mc.player.position() : "no player"',
       "typescript", monaco.Uri.parse("file:///__repl__/snippet.ts"));
-    replEd = monaco.editor.create($("replEditor"), { model, theme, automaticLayout: true, fontSize: 13, minimap: { enabled: false } });
+    replEd = monaco.editor.create($("replEditor"), { model, theme: "lb-active", automaticLayout: true, fontSize: 13, minimap: { enabled: false } });
     replEd.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, runRepl);
   }
   // live log stream (SSE) — OPT-IN via the "live log" toggle. When on, log(...)
@@ -669,6 +702,9 @@ require(["vs/editor/editor.main"], async () => {
     build: async () => { await build(); return lastBuild; },
     share: () => shareProject(),
     activeContent: () => editor.getModel().getValue(),
+    themes: () => Object.keys(THEMES),
+    theme: () => themeId,
+    setTheme: (id) => applyTheme(id),
     reloadMeta: async () => await dbGet(M_STORE, "open"),
     getProject: async (id) => await dbGet(P_STORE, id),
   };

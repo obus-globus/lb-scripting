@@ -33,7 +33,7 @@ function ensureServer(): boolean {
 }
 function openIde(): void {
   if (!ensureServer()) { Client.displayChatMessage("§c[ScriptIDE] could not start the local server."); return; }
-  const url = BASE_URL + "?opacity=" + OPACITY.get() + "&token=" + serverToken();
+  const url = BASE_URL + "?opacity=" + OPACITY.get() + "&token=" + serverToken() + "&theme=liquidbounce";
   if (!openEditorScreen(url, BLUR.get())) Client.displayChatMessage("§c[ScriptIDE] could not open the CEF editor (LB browser backend unavailable).");
 }
 
