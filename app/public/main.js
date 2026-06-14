@@ -566,8 +566,8 @@ require(["vs/editor/editor.main"], async () => {
   themeId = (() => { try { return localStorage.getItem("lb-ide:theme") || new URLSearchParams(location.search).get("theme") || "dark"; } catch { return "dark"; } })();
   if (!THEMES[themeId]) themeId = "dark";
 
-  editor = monaco.editor.create($("editor"), { theme: "vs-dark", automaticLayout: true, fontSize: 13, minimap: { enabled: false } });
-  applyTheme(themeId);
+  applyTheme(themeId); // define + set "lb-active" BEFORE creating the editor (no vs-dark flash)
+  editor = monaco.editor.create($("editor"), { theme: "lb-active", automaticLayout: true, fontSize: 13, minimap: { enabled: false } });
 
   // theme selector
   const themeSel = $("themeSel");

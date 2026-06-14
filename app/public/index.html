@@ -37,14 +37,13 @@
     .ptab:hover { background:var(--bg3); }
     .ptab.active { background:var(--bg); color:#fff; border-top-color:var(--acc2); }
     .ptab .x { opacity:.45; } .ptab .x:hover { opacity:1; color:var(--err); }
-    .ptab .tmpl { font-size:10px; color:#6a6; }
     /* file tab bar (open editors in the current project) */
     #ftabs { display:flex; align-items:stretch; gap:1px; background:var(--bg4); border-bottom:1px solid var(--border); padding:0 6px; overflow-x:auto; min-height:30px; }
     #ftabs:empty { display:none; }
     .ftab { display:flex; align-items:center; gap:8px; padding:4px 9px; font-size:12px; cursor:pointer; color:var(--fgdim); border-right:1px solid var(--border); white-space:nowrap; }
     .ftab:hover { background:var(--bg3); color:var(--fg); }
     .ftab.active { background:var(--bg); color:#fff; }
-    .ftab .dir { color:#666; }
+    .ftab .dir { color:var(--fgdim); }
     .ftab .x { opacity:.4; } .ftab:hover .x { opacity:.7; } .ftab .x:hover { opacity:1; color:var(--err); }
     #newProj { align-self:center; margin-left:4px; background:var(--bg3); color:#fff; border:0; border-radius:4px; padding:4px 9px; font:inherit; font-size:13px; cursor:pointer; }
     #newProj:hover { background:var(--hover); }
@@ -104,7 +103,7 @@
     #replHead button.ghost.on { background:var(--run); color:#fff; }
     #replEditor { flex:1; min-height:0; }
     #replOut { height:38%; overflow:auto; padding:6px 10px; font-size:12px; white-space:pre-wrap; border-top:1px solid var(--border); background:var(--bg); }
-    #replOut .in { color:#e0a060; } #replOut .ok { color:var(--ok); } #replOut .err { color:var(--err); } #replOut .log { color:var(--fgdim); } #replOut .stream { color:#6cb6ff; }
+    #replOut .in { color:#e0a060; } #replOut .ok { color:var(--ok); } #replOut .err { color:var(--err); } #replOut .log { color:var(--fgdim); } #replOut .stream { color:var(--acc); }
   </style>
 </head>
 <body>

@@ -169,13 +169,17 @@ for (const [frag, label] of badShares) {
 console.log("\n[6] themes");
 await boot();
 ok((await page.evaluate(() => window.__ide.themes())).includes("liquidbounce"), "LiquidBounce theme available");
+const editorBg = () => page.evaluate(() => getComputedStyle(document.querySelector(".monaco-editor-background") || document.querySelector(".monaco-editor")).backgroundColor);
 await page.evaluate(() => window.__ide.setTheme("liquidbounce"));
 const accent = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--acc").trim());
-ok(accent.toLowerCase() === "#4677ff", "applying LiquidBounce sets the LB accent (--acc=#4677ff): " + accent);
-const persisted = await page.evaluate(() => localStorage.getItem("lb-ide:theme"));
-ok(persisted === "liquidbounce", "theme choice persisted: " + persisted);
+ok(accent.toLowerCase() === "#4677ff", "LiquidBounce sets the LB accent (--acc=#4677ff): " + accent);
+const bgLB = await editorBg();
+ok(/10,\s*12,\s*16/.test(bgLB), "Monaco editor background follows LB theme (#0a0c10): " + bgLB);
+ok((await page.evaluate(() => localStorage.getItem("lb-ide:theme"))) === "liquidbounce", "theme choice persisted");
 await page.evaluate(() => window.__ide.setTheme("dark"));
 ok((await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--acc").trim())) === "#0e639c", "switching back to Dark restores its accent");
+const bgDark = await editorBg();
+ok(bgDark !== bgLB && /30,\s*30,\s*3[0-9]/.test(bgDark), "Monaco editor background switched too (dark): " + bgDark);
 
 await browser.close();
 server.close();
