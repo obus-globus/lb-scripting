@@ -8,7 +8,7 @@
 //   .ide where      print where the editor build + scripts live
 //
 // Setup: drop the editor build into  <LB config root>/lb-ide-editor/
-// (copy the app/dist contents there — see host/README.md). Then `.ide`.
+// (copy the editor dist contents there — see host/README.md). Then `.ide`.
 
 import { openEditorScreen, closeEditorScreen } from "./cef";
 import { startServer, serverToken } from "./server";

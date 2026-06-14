@@ -31,7 +31,7 @@ The editor (when in-client) exposes: **build & run in client**, **hot-reload**
 snippets eval'd live), **share links** (project encoded in the URL hash), and
 **open installed script**.
 
-The editor (the esbuild-wasm edition in [`../app/`](../app/)) builds the `.mjs`
+The editor (the esbuild-wasm edition in `../editor/`) builds the `.mjs`
 **entirely in the CEF tab** (no backend, no COOP/COEP needed), then POSTs it to
 `/api/load`. The host writes it next to your other scripts and hot-loads it.
 
@@ -53,8 +53,8 @@ Then `.script reload` (or restart) and `.ide`. (See `release/INSTALL.txt`.)
 
 1. **Build the editor** and copy it next to LiquidBounce:
    ```bash
-   cd ../app && npm install && npm run build-dist
-   # then copy the contents of app/dist/  →  <LB config root>/lb-ide-editor/
+   cd ../editor && npm install && npm run build-dist
+   # then copy the contents of ../editor/dist/  →  <LB config root>/lb-ide-editor/
    ```
    (`<LB config root>` is the folder shown by `.ide where`; the editor dir sits
    beside `scripts/`.)

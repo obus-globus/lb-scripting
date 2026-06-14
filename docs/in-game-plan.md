@@ -150,8 +150,8 @@ P4  Polish: keybind, opacity/blur like NodeFlow, error toasts, "unload" command,
 ```
 
 The remaining hard dependency is a **real client run** to validate CEF rendering
-+ keyboard (§7.1). Everything else is implemented under `../host/` and the
-editor's bridge mode in `../app/`.
++ keyboard (§7.1). Everything else is implemented under `../apps/host/` and the
+editor’s bridge mode in `../apps/editor/`.
 
 ---
 

@@ -3,7 +3,7 @@ name: build
 # Builds both halves self-contained:
 #  - the in-game LiquidBounce script (host/ → dist/main.mjs)
 #  - the editor (app/ → dist/), whose template sources are vendored in
-#    app/vendor/templates, plus the headless verify suite.
+#    the templates/ sources, plus the headless verify suite.
 
 on:
   push:
