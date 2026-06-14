@@ -76,7 +76,8 @@ authoring is "write typed code, build the `.mjs`, drop it in the client" — the
 build never touches the game:
 
 - **Monaco + TS worker** is the lowest-risk, fully-permissive, zero-dependency
-  path. We control everything; only MIT deps.
+  path. We control everything; only MIT deps. **The one real unknown is now
+  resolved — see the spike below.**
 - **WebContainers** is more capable (real npm/build, real terminal) but carries
   licensing + session-cap + StackBlitz-dependency baggage.
 
@@ -85,10 +86,30 @@ esbuild-wasm) for the common author→build→download flow, and keep `code-serv
 (or a local CLI) for the advanced live-client/`:9229` debug loop that no browser
 sandbox can do.
 
-**Suggested next step:** a throwaway Monaco spike that loads `@wunk/lb-script-api-types`
-into the TS worker and proves autocomplete + diagnostics against the ambient
-globals (`mc`, `Client`, `Setting`) and importable modules — that's the one real
-unknown.
+## Spike: Monaco proven (✅ verified headless)
+
+[`spikes/monaco-typings/`](spikes/monaco-typings/) — a working Monaco page that
+loads `@wunk/lb-script-api-types` into the in-browser TS worker, verified
+end-to-end in headless google-chrome (`node verify.mjs`):
+
+```
+good.ts          → 0 errors  (ambient globals + JVM-path module import both resolve)
+bad.ts           → 3 errors  (incl. typed on() rejecting a bogus event name)
+mc.* autocomplete→ 234 real members
+closure shipped  → ~6 k files / 10.6 MB raw / ~1.2 MB gzipped  (NOT the full 96 MB)
+```
+
+Two findings that de-risk the Monaco path:
+1. **The feared module-resolution quirk doesn't bite** if you mirror a real
+   `node_modules/@wunk/...` layout + include the package's `package.json`
+   (`typesVersions`) and use `NodeJs` resolution. Verified, not assumed.
+2. **The 96 MB package must be sliced to its closure** (~1.2 MB gzipped per
+   script) before shipping — `gen-bundle.mjs` does this via `tsc --listFiles`.
+
+**Remaining unknowns for a real product:** the in-browser **build** step
+(esbuild-wasm + a virtual-FS resolve plugin for `@wunk/...`) and per-tab
+**persistence** (IndexedDB / File System Access API). Neither is a research risk
+— both are known-feasible engineering.
 
 ## Layout
 

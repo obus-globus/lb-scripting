@@ -4,6 +4,14 @@
 > **zero backend**, per-tab isolation free, `esbuild-wasm` for the build.
 > **Strong, arguably ideal fit** for "author + type-check + build, isolated, zero
 > infra." All-MIT.
+>
+> **✅ VERIFIED** by the spike in [`../spikes/monaco-typings/`](../spikes/monaco-typings/):
+> our package resolves in a real headless-chrome Monaco worker — `good.ts` 0
+> errors, `bad.ts` 3 errors (incl. typed-event rejection), `mc.*` → 234
+> completions. The closure to ship is ~6 k files / **10.6 MB raw / ~1.2 MB
+> gzipped** (slice it from the package's 96 MB via `tsc --listFiles`). The
+> module-resolution caveat below was avoided by mirroring a `node_modules/@wunk/…`
+> layout + including the package `package.json` and using `NodeJs` resolution.
 
 ## 1. What Monaco ships out of the box
 

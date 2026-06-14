@@ -1,0 +1,19 @@
+{
+  "name": "monaco-typings",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@wunk/lb-script-api-types": "^0.38.4",
+    "monaco-editor": "^0.52.2",
+    "puppeteer-core": "^23.11.1",
+    "typescript": "5.4"
+  }
+}
