@@ -34,11 +34,17 @@
     #mid { display:grid; grid-template-columns:200px 1fr; min-height:0; }
     #side { background:var(--bg2); border-right:1px solid #111; overflow:auto; }
     #side h4 { margin:0; padding:8px 10px; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:#888; }
-    .file { padding:5px 10px; font-size:13px; cursor:pointer; display:flex; justify-content:space-between; gap:6px; }
+    .file { padding:4px 8px; font-size:13px; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:6px; }
     .file:hover { background:var(--bg3); }
     .file.active { background:var(--acc); color:#fff; }
+    .file .fname { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .file.folder .fname { color:#cda; }
+    .file .acts { display:flex; gap:4px; opacity:0; }
+    .file:hover .acts { opacity:1; }
     .file .x { opacity:.5; }
+    .file:hover > .x { opacity:.5; }
     .file .x:hover { opacity:1; color:var(--err); }
+    .file .x.add:hover { color:var(--ok); }
     #editor { min-width:0; }
     #log { height:150px; background:#141414; border-top:1px solid #111; overflow:auto; padding:8px 10px; font-size:12px; white-space:pre-wrap; }
     #log .e { color:var(--err); }
@@ -54,6 +60,7 @@
       <span class="spacer"></span>
       <span id="status">booting…</span>
       <button id="addFile" class="ghost">+ file</button>
+      <button id="addFolder" class="ghost">+ folder</button>
       <button id="rename" class="ghost">rename</button>
       <button id="build">build</button>
       <button id="download" class="ghost" disabled>download .mjs</button>

@@ -46,7 +46,9 @@ const uid = () => "p-" + Math.random().toString(36).slice(2, 8) + Date.now().toS
 // ---------------------------------------------------------------- monaco cfg
 function configureTS(defaults, isJs) {
   const t = monaco.languages.typescript;
-  defaults.setCompilerOptions({ target: t.ScriptTarget.ES2022, module: t.ModuleKind.ESNext, moduleResolution: t.ModuleResolutionKind.NodeJs, lib: ["es2023"], types: ["@wunk/lb-script-api-types/ambient"], strict: true, skipLibCheck: true, allowNonTsExtensions: true, noEmit: true, ...(isJs ? { allowJs: true, checkJs: true } : {}) });
+  // moduleDetection: Force (3) — every file is its own module, so the many
+  // example files don't collide in a shared global scope (matches the templates).
+  defaults.setCompilerOptions({ target: t.ScriptTarget.ES2022, module: t.ModuleKind.ESNext, moduleResolution: t.ModuleResolutionKind.NodeJs, moduleDetection: 3, lib: ["es2023"], types: ["@wunk/lb-script-api-types/ambient"], strict: true, skipLibCheck: true, allowNonTsExtensions: true, noEmit: true, ...(isJs ? { allowJs: true, checkJs: true } : {}) });
   defaults.setExtraLibs(baseExtraLibs);
   defaults.setEagerModelSync(true);
 }
@@ -65,18 +67,69 @@ function ensureModel(path) {
 }
 function openFile(path) { proj.active = path; editor.setModel(ensureModel(path)); renderFiles(); scheduleSave(); }
 
+const collapsed = new Set(); // folder paths the user has collapsed (per session)
+
+// Build a nested tree from file paths + any explicitly-created empty folders.
+function buildTree() {
+  const root = { dirs: new Map(), files: [] };
+  const ensureDir = (parts) => { let n = root; let acc = ""; for (const p of parts) { acc = acc ? acc + "/" + p : p; if (!n.dirs.has(p)) n.dirs.set(p, { path: acc, dirs: new Map(), files: [] }); n = n.dirs.get(p); } return n; };
+  for (const f of proj.folders || []) ensureDir(f.split("/").filter(Boolean));
+  for (const path of Object.keys(proj.files)) { const parts = path.split("/"); const file = parts.pop(); const dir = ensureDir(parts); dir.files.push({ name: file, path }); }
+  return root;
+}
+function deleteFile(path) {
+  delete proj.files[path]; const m = models.get(path); if (m) { m.dispose(); models.delete(path); }
+  if (proj.active === path) proj.active = Object.keys(proj.files)[0] || null;
+  if (proj.active) openFile(proj.active); else { editor.setModel(null); renderFiles(); }
+  scheduleSave();
+}
+function deleteFolder(folderPath) {
+  for (const p of Object.keys(proj.files)) if (p === folderPath || p.startsWith(folderPath + "/")) { delete proj.files[p]; const m = models.get(p); if (m) { m.dispose(); models.delete(p); } }
+  proj.folders = (proj.folders || []).filter((f) => f !== folderPath && !f.startsWith(folderPath + "/"));
+  if (proj.active && !proj.files[proj.active]) proj.active = Object.keys(proj.files)[0] || null;
+  if (proj.active) openFile(proj.active); else { editor.setModel(null); renderFiles(); }
+  scheduleSave();
+}
+function addFileAt(dirPath) {
+  const rel = prompt("New file" + (dirPath ? " in " + dirPath : "") + " (e.g. util.ts or lib/util.ts):"); if (!rel) return;
+  const path = (dirPath ? dirPath + "/" : "") + rel.replace(/^\/+/, "");
+  if (path in proj.files) return openFile(path);
+  proj.files[path] = langFor(path) === "javascript" ? "// @ts-check\n" : "";
+  collapsed.delete(dirPath); openFile(path);
+}
+function addFolderAt(dirPath) {
+  const rel = prompt("New folder" + (dirPath ? " in " + dirPath : "") + ":"); if (!rel) return;
+  const path = (dirPath ? dirPath + "/" : "") + rel.replace(/^\/+|\/+$/g, "");
+  proj.folders = proj.folders || []; if (!proj.folders.includes(path)) proj.folders.push(path);
+  collapsed.delete(dirPath); renderFiles(); scheduleSave();
+}
+
 function renderFiles() {
   const wrap = $("files"); wrap.innerHTML = "";
-  for (const path of Object.keys(proj.files).sort()) {
-    const row = document.createElement("div"); row.className = "file" + (path === proj.active ? " active" : "");
-    const name = document.createElement("span"); name.textContent = path; name.onclick = () => openFile(path); row.appendChild(name);
-    if (Object.keys(proj.files).length > 1) {
-      const x = document.createElement("span"); x.className = "x"; x.textContent = "✕";
-      x.onclick = (e) => { e.stopPropagation(); delete proj.files[path]; const m = models.get(path); if (m) { m.dispose(); models.delete(path); } if (proj.active === path) proj.active = Object.keys(proj.files)[0]; if (proj.active) openFile(proj.active); else renderFiles(); scheduleSave(); };
-      row.appendChild(x);
+  const tree = buildTree();
+  const render = (node, depth) => {
+    const pad = (d) => "calc(" + d + " * 12px + 8px)";
+    for (const [name, dir] of [...node.dirs.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+      const isCol = collapsed.has(dir.path);
+      const row = document.createElement("div"); row.className = "file folder"; row.style.paddingLeft = pad(depth);
+      const label = document.createElement("span"); label.className = "fname"; label.textContent = (isCol ? "▸ " : "▾ ") + name + "/";
+      label.onclick = () => { if (isCol) collapsed.delete(dir.path); else collapsed.add(dir.path); renderFiles(); };
+      row.appendChild(label);
+      const acts = document.createElement("span"); acts.className = "acts";
+      const add = document.createElement("span"); add.className = "x add"; add.textContent = "＋"; add.title = "new file in " + dir.path; add.onclick = (e) => { e.stopPropagation(); addFileAt(dir.path); };
+      const del = document.createElement("span"); del.className = "x"; del.textContent = "✕"; del.title = "delete folder"; del.onclick = (e) => { e.stopPropagation(); if (confirm("Delete folder " + dir.path + " and its files?")) deleteFolder(dir.path); };
+      acts.append(add, del); row.appendChild(acts);
+      wrap.appendChild(row);
+      if (!isCol) render(dir, depth + 1);
     }
-    wrap.appendChild(row);
-  }
+    for (const f of node.files.sort((a, b) => a.name.localeCompare(b.name))) {
+      const row = document.createElement("div"); row.className = "file" + (f.path === proj.active ? " active" : ""); row.style.paddingLeft = pad(depth);
+      const name = document.createElement("span"); name.className = "fname"; name.textContent = f.name; name.onclick = () => openFile(f.path); row.appendChild(name);
+      const x = document.createElement("span"); x.className = "x"; x.textContent = "✕"; x.onclick = (e) => { e.stopPropagation(); deleteFile(f.path); }; row.appendChild(x);
+      wrap.appendChild(row);
+    }
+  };
+  render(tree, 0);
 }
 
 // ---------------------------------------------------------------- projects
@@ -94,7 +147,8 @@ function templateById(tid) { return TEMPLATES.find((t) => t.id === tid) || TEMPL
 async function createProject(templateId, opts = {}) {
   const t = templateById(templateId);
   const n = meta.ids.filter((id) => id.startsWith("p-")).length + 1;
-  proj = { id: uid(), name: opts.name || t.name + " " + n, templateId: t.id, files: JSON.parse(JSON.stringify(t.files)), active: Object.keys(t.files)[0], updatedAt: Date.now() };
+  const entry = "main.ts" in t.files ? "main.ts" : "main.js" in t.files ? "main.js" : Object.keys(t.files)[0];
+  proj = { id: uid(), name: opts.name || t.name + " " + n, templateId: t.id, files: JSON.parse(JSON.stringify(t.files)), folders: [], active: entry, updatedAt: Date.now() };
   meta.ids.push(proj.id); meta.current = proj.id;
   await saveProject(); await saveMeta();
   disposeModels();
@@ -239,7 +293,8 @@ require(["vs/editor/editor.main"], async () => {
 
   $("build").onclick = build;
   $("download").onclick = download;
-  $("addFile").onclick = () => { const name = prompt("New file name (e.g. helper.ts):"); if (!name) return; if (name in proj.files) return openFile(name); proj.files[name] = langFor(name) === "javascript" ? "// @ts-check\n" : ""; openFile(name); };
+  $("addFile").onclick = () => addFileAt("");
+  $("addFolder").onclick = () => addFolderAt("");
   $("rename").onclick = async () => { const n = prompt("Project name:", proj.name); if (!n) return; proj.name = n; await saveProject(); renderTabs(); };
 
   setStatus("ready");
@@ -251,6 +306,9 @@ require(["vs/editor/editor.main"], async () => {
     listProjects: () => meta.ids.slice(),
     current: () => ({ id: proj.id, name: proj.name, templateId: proj.templateId }),
     listFiles: () => Object.keys(proj.files),
+    writeFile: (path, content) => { proj.files[path] = content; openFile(path); },
+    openFile: (path) => openFile(path),
+    diagnosticsFor: async (path) => { const m = ensureModel(path); const gw = await monaco.languages.typescript.getTypeScriptWorker(); const c = await gw(m.uri); const u = m.uri.toString(); const ds = [...(await c.getSyntacticDiagnostics(u)), ...(await c.getSemanticDiagnostics(u))]; return ds.map((d) => ({ code: d.code })); },
     createProject: (tid) => createProject(tid),
     switchProject: (id) => loadProject(id),
     closeProject: (id) => closeProject(id),

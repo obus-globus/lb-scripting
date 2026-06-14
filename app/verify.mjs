@@ -27,13 +27,34 @@ await page.goto(base, { waitUntil: "domcontentloaded" });
 await page.evaluate(() => new Promise((res) => { const r = indexedDB.deleteDatabase("lb-ide"); r.onsuccess = r.onerror = () => res(); }));
 await boot();
 
-console.log("\n[1] templates + default build");
+console.log("\n[1] templates + multi-file/folders + default build");
 const templates = await page.evaluate(() => window.__ide.templates());
 ok(["default-ts", "plain-js", "starter-ts", "inject-ts"].every((t) => templates.includes(t)), "4 templates: " + JSON.stringify(templates));
+const files0 = await page.evaluate(() => window.__ide.listFiles());
+ok(files0.length > 5, "default project is multi-file: " + files0.length + " files");
+ok(files0.some((f) => f.includes("/")), "has nested folders, e.g. " + files0.find((f) => f.includes("/")));
+ok(files0.includes("examples/multi-file/lib/format.ts"), "deep folder file present (examples/multi-file/lib/format.ts)");
 const d0 = await page.evaluate(() => window.__ide.diagnostics());
-ok(d0.length === 0, "default project type-checks clean: " + JSON.stringify(d0));
+ok(d0.length === 0, "main.ts type-checks clean despite many files (moduleDetection): " + JSON.stringify(d0));
+// a nested example with a cross-folder import should also type-check
+const dMulti = await page.evaluate(() => window.__ide.diagnosticsFor("examples/multi-file/main.ts"));
+ok(dMulti.length === 0, "examples/multi-file/main.ts (imports ./lib/format) type-checks: " + JSON.stringify(dMulti));
 const b0 = await page.evaluate(() => window.__ide.build());
 ok(!!b0 && b0.code.includes("x="), "default project builds (helper inlined)");
+
+console.log("\n[1b] add a nested file + cross-folder import, rebuild");
+await page.evaluate(() => {
+  window.__ide.writeFile("lib/greet.ts", 'export const greet = (n: string): string => "hi " + n;');
+  window.__ide.writeFile("main.ts",
+    '/// <reference types="@wunk/lb-script-api-types/ambient" />\n' +
+    'import { greet } from "./lib/greet";\n' +
+    'registerScript({ name: "t", version: "0", authors: [] });\n' +
+    'Client.displayChatMessage(greet("world"));');
+});
+const dNested = await page.evaluate(() => window.__ide.diagnosticsFor("main.ts"));
+ok(dNested.length === 0, "main.ts importing ./lib/greet type-checks: " + JSON.stringify(dNested));
+const bNested = await page.evaluate(() => window.__ide.build());
+ok(!!bNested && bNested.code.includes("hi "), "nested lib/greet.ts inlined into build");
 
 console.log("\n[2] inject template");
 await page.evaluate(() => window.__ide.createProject("inject-ts"));

@@ -20,9 +20,12 @@ orchestration / Kubernetes / licensing baggage of the server-side options — se
 
 ```
 ✓ multiple projects in a tab bar, each its own files, persisted independently
-✓ "+ new" template picker, seeded from the real LB templates:
+✓ "+ new" template picker, seeded from the real LB templates (full src/ trees):
     default-ts · plain-js · starter-ts · inject-ts (lb-inject)
-✓ live type-checking + autocomplete (TS and // @ts-check JS)
+✓ multi-file projects with a collapsible FOLDER TREE (create/delete files +
+    folders at any depth); cross-folder ./imports resolve & inline in the build
+✓ live type-checking + autocomplete (TS and // @ts-check JS), moduleDetection
+    forced so the many files don't collide in global scope
 ✓ build → self-contained .mjs, matching the template build conventions:
     · JVM-type value imports  →  Java.type("<fqcn>")
     · `import { Inject } from "lb-inject"`  →  inlined lb-inject runtime
