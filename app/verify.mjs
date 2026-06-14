@@ -5,6 +5,7 @@
 //  3. JVM-type value import rewritten to Java.type("…") in the bundle
 //  4. multiple projects: create / switch / isolation, persist across reload
 import { existsSync } from "node:fs";
+import zlib from "node:zlib";
 import puppeteer from "puppeteer-core";
 import { createServer } from "./serve.mjs";
 
@@ -144,11 +145,26 @@ await page.goto(shareUrl, { waitUntil: "domcontentloaded" });
 await page.waitForFunction("window.__ide && window.__ide.ready === true", { timeout: 60000 });
 ok((await page.evaluate(() => window.__ide.activeContent())).includes(SH), "shared content round-trips via the link");
 ok((await page.evaluate(() => window.__ide.listFiles())).some((f) => f.endsWith("lib/format.ts")), "shared link carries ALL files (not just main)");
-// a malformed share must not brick the app
-await page.evaluate(() => new Promise((r) => { const x = indexedDB.deleteDatabase("lb-ide"); x.onsuccess = x.onerror = () => r(); }));
-await page.goto(base + "#share=not__valid__gzip", { waitUntil: "domcontentloaded" });
-await page.waitForFunction("window.__ide && window.__ide.ready === true", { timeout: 60000 });
-ok((await page.evaluate(() => window.__ide.listFiles())).length > 0, "malformed share link falls back to a project (no crash)");
+// malformed share links must not brick the app — exercise BOTH the decode-failure
+// path AND the validShare-rejection path (valid gzip, structurally-bad payload).
+// Build hashes from raw JSON strings (an object-literal __proto__ wouldn't create
+// an own key); cache-bust the URL so a hash-only change still reloads the page.
+const gzFrag = (json) => zlib.gzipSync(Buffer.from(json)).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const badShares = [
+  ["not__valid__gzip", "garbage (decode fails)"],
+  [gzFrag('{"v":2,"files":{"main.ts":"x"}}'), "wrong version"],
+  [gzFrag('{"v":1,"files":{}}'), "empty files"],
+  [gzFrag('{"v":1,"files":{"main.ts":42}}'), "non-string file value"],
+  [gzFrag('{"v":1,"files":{"__proto__":"polluted"}}'), "__proto__ key (pollution attempt)"],
+];
+for (const [frag, label] of badShares) {
+  await page.evaluate(() => new Promise((r) => { const x = indexedDB.deleteDatabase("lb-ide"); x.onsuccess = x.onerror = () => r(); }));
+  await page.goto(base + "?t=" + Date.now() + "#share=" + frag, { waitUntil: "domcontentloaded" });
+  await page.waitForFunction("window.__ide && window.__ide.ready === true", { timeout: 60000 });
+  const okFiles = (await page.evaluate(() => window.__ide.listFiles())).length > 0;
+  const noPollution = await page.evaluate(() => ({}).polluted === undefined && Object.prototype.polluted === undefined);
+  ok(okFiles && noPollution, "malformed share (" + label + ") → clean fallback, no pollution");
+}
 
 await browser.close();
 server.close();

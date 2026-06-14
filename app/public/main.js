@@ -391,20 +391,27 @@ async function encodeShare(p) {
   const data = new TextEncoder().encode(JSON.stringify(payload));
   return "share=" + b64uEnc(await gz(data));
 }
+const SHARE_MAX_B64 = 3 * 1024 * 1024;   // ~3MB link cap
+const SHARE_MAX_BYTES = 12 * 1024 * 1024; // decompressed cap (gzip-bomb guard)
 async function decodeShare(hash) {
   const raw = hash.slice("share=".length);
-  const json = new TextDecoder().decode(await gunzip(b64uDec(raw)));
-  return JSON.parse(json);
+  if (raw.length > SHARE_MAX_B64) throw new Error("share link too large");
+  const bytes = await gunzip(b64uDec(raw));
+  if (bytes.length > SHARE_MAX_BYTES) throw new Error("share payload too large");
+  return JSON.parse(new TextDecoder().decode(bytes));
 }
 // Validate an untrusted share payload before importing it (prevents crashes /
-// corruption from malformed or hostile #share= links).
+// corruption / DoS from malformed or hostile #share= links).
 function validShare(p) {
   if (!p || p.v !== 1 || typeof p.files !== "object" || p.files === null || Array.isArray(p.files)) return false;
   const keys = Object.keys(p.files);
-  if (keys.length === 0) return false;
+  if (keys.length === 0 || keys.length > 2000) return false;
+  let total = 0;
   for (const k of keys) {
     if (k === "__proto__" || k === "constructor" || k === "prototype") return false;
     if (typeof p.files[k] !== "string") return false;
+    total += p.files[k].length;
+    if (total > SHARE_MAX_BYTES) return false;
   }
   return true;
 }
