@@ -56,6 +56,19 @@ ok(dNested.length === 0, "main.ts importing ./lib/greet type-checks: " + JSON.st
 const bNested = await page.evaluate(() => window.__ide.build());
 ok(!!bNested && bNested.code.includes("hi "), "nested lib/greet.ts inlined into build");
 
+console.log("\n[1c] open-file tabs (second tier)");
+await page.evaluate(() => window.__ide.createProject("default-ts"));
+await page.evaluate(() => window.__ide.openFile("examples/multi-file/main.ts"));
+await page.evaluate(() => window.__ide.openFile("examples/multi-file/lib/format.ts"));
+let tabs = await page.evaluate(() => window.__ide.openTabs());
+ok(tabs.length === 3 && tabs.includes("examples/multi-file/lib/format.ts"), "opening files adds editor tabs: " + JSON.stringify(tabs));
+const domTabs = await page.evaluate(() => document.querySelectorAll("#ftabs .ftab").length);
+ok(domTabs === 3, "file tab bar renders " + domTabs + " tabs");
+await page.evaluate(() => window.__ide.closeTab("examples/multi-file/lib/format.ts"));
+tabs = await page.evaluate(() => window.__ide.openTabs());
+ok(tabs.length === 2 && !tabs.includes("examples/multi-file/lib/format.ts"), "closing a tab removes it (file kept): " + JSON.stringify(tabs));
+ok((await page.evaluate(() => window.__ide.listFiles())).includes("examples/multi-file/lib/format.ts"), "closed tab's file still exists in the project");
+
 console.log("\n[2] inject template");
 await page.evaluate(() => window.__ide.createProject("inject-ts"));
 const cur = await page.evaluate(() => window.__ide.current());

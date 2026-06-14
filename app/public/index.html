@@ -8,7 +8,7 @@
     :root { --bg:#1e1e1e; --bg2:#252526; --bg3:#2d2d2d; --fg:#d4d4d4; --acc:#0e639c; --acc2:#1177bb; --err:#f48771; --ok:#89d185; }
     * { box-sizing: border-box; }
     html, body { margin:0; height:100%; font-family: ui-monospace, "SF Mono", Menlo, monospace; background:var(--bg); color:var(--fg); }
-    #app { display:grid; grid-template-rows:auto auto 1fr auto; height:100%; }
+    #app { display:grid; grid-template-rows:auto auto auto 1fr auto; height:100%; }
     #bar { display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg2); border-bottom:1px solid #111; font-size:13px; }
     #bar .spacer { flex:1; }
     #bar button { font:inherit; background:var(--acc); color:#fff; border:0; border-radius:4px; padding:5px 10px; cursor:pointer; }
@@ -23,6 +23,14 @@
     .ptab.active { background:var(--bg); color:#fff; border-top-color:var(--acc2); }
     .ptab .x { opacity:.45; } .ptab .x:hover { opacity:1; color:var(--err); }
     .ptab .tmpl { font-size:10px; color:#6a6; }
+    /* file tab bar (open editors in the current project) */
+    #ftabs { display:flex; align-items:stretch; gap:1px; background:#161616; border-bottom:1px solid #111; padding:0 6px; overflow-x:auto; min-height:30px; }
+    #ftabs:empty { display:none; }
+    .ftab { display:flex; align-items:center; gap:8px; padding:4px 9px; font-size:12px; cursor:pointer; color:#9a9a9a; border-right:1px solid #111; white-space:nowrap; }
+    .ftab:hover { background:var(--bg3); color:#ccc; }
+    .ftab.active { background:var(--bg); color:#fff; }
+    .ftab .dir { color:#666; }
+    .ftab .x { opacity:.4; } .ftab:hover .x { opacity:.7; } .ftab .x:hover { opacity:1; color:var(--err); }
     #newProj { align-self:center; margin-left:4px; background:#3a3a3a; color:#fff; border:0; border-radius:4px; padding:4px 9px; font:inherit; font-size:13px; cursor:pointer; }
     #newProj:hover { background:#484848; }
     /* template menu */
@@ -67,6 +75,7 @@
       <button id="download" class="ghost" disabled>download .mjs</button>
     </div>
     <div id="tabs"></div>
+    <div id="ftabs"></div>
     <div id="mid">
       <div id="side">
         <div id="sideHead">

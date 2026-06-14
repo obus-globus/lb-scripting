@@ -19,6 +19,8 @@ orchestration / Kubernetes / licensing baggage of the server-side options — se
 ## Features (all verified headless by `npm run verify`)
 
 ```
+✓ two-tier tabs: PROJECT tabs on top, OPEN-FILE (editor) tabs below — open
+    files from the tree, switch/close tabs (close keeps the file)
 ✓ multiple projects in a tab bar, each its own files, persisted independently
 ✓ "+ new" template picker, seeded from the real LB templates (full src/ trees):
     default-ts · plain-js · starter-ts · inject-ts (lb-inject)

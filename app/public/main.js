@@ -65,7 +65,37 @@ function ensureModel(path) {
   }
   return m;
 }
-function openFile(path) { proj.active = path; editor.setModel(ensureModel(path)); renderFiles(); scheduleSave(); }
+function openFile(path) {
+  proj.active = path;
+  if (!proj.openTabs) proj.openTabs = [];
+  if (!proj.openTabs.includes(path)) proj.openTabs.push(path);
+  editor.setModel(ensureModel(path));
+  renderFiles(); renderFtabs(); scheduleSave();
+}
+function closeTab(path) {
+  proj.openTabs = (proj.openTabs || []).filter((p) => p !== path);
+  if (proj.active === path) {
+    const next = proj.openTabs[proj.openTabs.length - 1];
+    if (next) openFile(next);
+    else { proj.active = null; editor.setModel(null); renderFiles(); renderFtabs(); scheduleSave(); }
+  } else { renderFtabs(); scheduleSave(); }
+}
+function renderFtabs() {
+  const wrap = $("ftabs"); wrap.innerHTML = "";
+  for (const path of proj.openTabs || []) {
+    if (!(path in proj.files)) continue;
+    const tab = document.createElement("div"); tab.className = "ftab" + (path === proj.active ? " active" : "");
+    const slash = path.lastIndexOf("/");
+    const label = document.createElement("span");
+    if (slash >= 0) { const dir = document.createElement("span"); dir.className = "dir"; dir.textContent = path.slice(0, slash + 1); label.appendChild(dir); label.appendChild(document.createTextNode(path.slice(slash + 1))); }
+    else label.textContent = path;
+    label.onclick = () => { if (path !== proj.active) openFile(path); };
+    tab.appendChild(label);
+    const x = document.createElement("span"); x.className = "x"; x.textContent = "✕"; x.title = "close tab"; x.onclick = (e) => { e.stopPropagation(); closeTab(path); };
+    tab.appendChild(x);
+    wrap.appendChild(tab);
+  }
+}
 
 const collapsed = new Set(); // folder paths the user has collapsed (per session)
 
@@ -79,15 +109,17 @@ function buildTree() {
 }
 function deleteFile(path) {
   delete proj.files[path]; const m = models.get(path); if (m) { m.dispose(); models.delete(path); }
-  if (proj.active === path) proj.active = Object.keys(proj.files)[0] || null;
-  if (proj.active) openFile(proj.active); else { editor.setModel(null); renderFiles(); }
+  proj.openTabs = (proj.openTabs || []).filter((p) => p !== path);
+  if (proj.active === path) proj.active = proj.openTabs[proj.openTabs.length - 1] || Object.keys(proj.files)[0] || null;
+  if (proj.active) openFile(proj.active); else { editor.setModel(null); renderFiles(); renderFtabs(); }
   scheduleSave();
 }
 function deleteFolder(folderPath) {
   for (const p of Object.keys(proj.files)) if (p === folderPath || p.startsWith(folderPath + "/")) { delete proj.files[p]; const m = models.get(p); if (m) { m.dispose(); models.delete(p); } }
   proj.folders = (proj.folders || []).filter((f) => f !== folderPath && !f.startsWith(folderPath + "/"));
-  if (proj.active && !proj.files[proj.active]) proj.active = Object.keys(proj.files)[0] || null;
-  if (proj.active) openFile(proj.active); else { editor.setModel(null); renderFiles(); }
+  proj.openTabs = (proj.openTabs || []).filter((p) => p in proj.files);
+  if (proj.active && !proj.files[proj.active]) proj.active = proj.openTabs[proj.openTabs.length - 1] || Object.keys(proj.files)[0] || null;
+  if (proj.active) openFile(proj.active); else { editor.setModel(null); renderFiles(); renderFtabs(); }
   scheduleSave();
 }
 function addFileAt(dirPath) {
@@ -148,7 +180,7 @@ async function createProject(templateId, opts = {}) {
   const t = templateById(templateId);
   const n = meta.ids.filter((id) => id.startsWith("p-")).length + 1;
   const entry = "main.ts" in t.files ? "main.ts" : "main.js" in t.files ? "main.js" : Object.keys(t.files)[0];
-  proj = { id: uid(), name: opts.name || t.name + " " + n, templateId: t.id, files: JSON.parse(JSON.stringify(t.files)), folders: [], active: entry, updatedAt: Date.now() };
+  proj = { id: uid(), name: opts.name || t.name + " " + n, templateId: t.id, files: JSON.parse(JSON.stringify(t.files)), folders: [], openTabs: [entry], active: entry, updatedAt: Date.now() };
   meta.ids.push(proj.id); meta.current = proj.id;
   await saveProject(); await saveMeta();
   disposeModels();
@@ -308,6 +340,8 @@ require(["vs/editor/editor.main"], async () => {
     listFiles: () => Object.keys(proj.files),
     writeFile: (path, content) => { proj.files[path] = content; openFile(path); },
     openFile: (path) => openFile(path),
+    openTabs: () => (proj.openTabs || []).slice(),
+    closeTab: (path) => closeTab(path),
     diagnosticsFor: async (path) => { const m = ensureModel(path); const gw = await monaco.languages.typescript.getTypeScriptWorker(); const c = await gw(m.uri); const u = m.uri.toString(); const ds = [...(await c.getSyntacticDiagnostics(u)), ...(await c.getSemanticDiagnostics(u))]; return ds.map((d) => ({ code: d.code })); },
     createProject: (tid) => createProject(tid),
     switchProject: (id) => loadProject(id),
