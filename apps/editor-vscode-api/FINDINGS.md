@@ -62,6 +62,32 @@ after a genuine attempt, pause and report"), stopping here. The blocker is now
 specific: **get the worker-extension-host iframe to load** (so `extensions.all` is
 non-empty); tsserver + typings follow from there.
 
+## Round 3 — supported serving (`vite preview`) + demo container/envOptions
+To rule out my hand-rolled static server as the confound (it caused false
+negatives before), re-ran under **`vite preview`** (serves workers/wasm/iframe +
+COI headers the framework's way — confirmed `COOP:same-origin`/`COEP:credentialless`)
+AND added the demo's remaining init pieces: a real **container** `<div>` (was
+`undefined`), `getWorkbenchServiceOverride()`, and the 4th-arg
+**`envOptions = { userHome: '/' }`** (`EnvironmentOverride`).
+- **Identical result: `extCount:0`, no `webWorkerExtensionHostIframe.html` request,
+  no `tsserver.web.js`, no diagnostics** — `ready:true`, `crossOriginIsolated:true`,
+  no JS errors (besides the TextMate oniguruma one).
+- **Conclusion: it is NOT my static server.** Under the supported serving model,
+  with the demo's container + workbench override + envOptions + ~52 overrides + 7
+  workers, the **worker extension host never boots** → zero extensions register →
+  tsserver cannot activate. This is a **hard blocker**, not a serving artifact.
+- Remaining un-replicated demo pieces (not "EnvironmentOverride/iframe config", so
+  out of scope per the agreed plan): IndexedDB user-data providers, full
+  `constructOptions.defaultLayout`, a `registerExtension(...)`-based custom ext +
+  `getApi()` bootstrap, and `?raw` user config/keybindings files. One of these may
+  be what actually triggers ext-host boot — but reaching that is a multi-file,
+  open-ended port, not a quick fix.
+
+**Decisive outcome (per Koda's stop condition):** under supported serving, a
+faithful-but-not-exhaustive replication of the demo cannot boot the extension
+host. Crux 1 (tsserver + 12 MB typings) remains UNREACHED; the blocker is
+ext-host boot, upstream of typings.
+
 ## Unresolved — the crux
 - **`tsserver` never activated.** `tsserver.web.js` was never requested across:
   minimal (8) and fuller (16) service overrides; with and without a registered

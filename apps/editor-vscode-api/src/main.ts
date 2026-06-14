@@ -54,6 +54,7 @@ import getTreeSitterServiceOverride from "@codingame/monaco-vscode-treesitter-se
 import getLogServiceOverride from "@codingame/monaco-vscode-log-service-override";
 import getViewsServiceOverride from "@codingame/monaco-vscode-views-service-override";
 import getQuickAccessServiceOverride from "@codingame/monaco-vscode-quickaccess-service-override";
+import getWorkbenchServiceOverride from "@codingame/monaco-vscode-workbench-service-override";
 // extensions
 import "@codingame/monaco-vscode-typescript-language-features-default-extension";
 import "@codingame/monaco-vscode-typescript-basics-default-extension";
@@ -93,6 +94,9 @@ const workerUrls: Record<string, string> = {
 
 (async () => {
   try {
+    const container = document.createElement("div");
+    container.style.height = "100vh";
+    document.body.replaceChildren(container);
     const wsUri = monaco.Uri.file("/workspace");
     const uri = monaco.Uri.file("/workspace/main.ts");
     const fsp = new RegisteredFileSystemProvider(false);
@@ -154,9 +158,10 @@ const workerUrls: Record<string, string> = {
       ...getExplorerServiceOverride(),
       ...getViewsServiceOverride(),
       ...getQuickAccessServiceOverride(),
-    }, undefined, {
+      ...getWorkbenchServiceOverride(),
+    }, container, {
       workspaceProvider: { trusted: true, workspace: { folderUri: wsUri }, async open() { return false; } },
-    } as any);
+    } as any, { userHome: monaco.Uri.file("/") } as any);
     S.ready = true;
 
     // open the document THROUGH the vscode API so onLanguage:typescript activation fires
