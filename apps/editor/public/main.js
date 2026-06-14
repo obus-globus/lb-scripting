@@ -51,6 +51,22 @@ let editor = null, lastBuild = null, saveTimer = null;
 const $ = (id) => document.getElementById(id);
 function log(msg, cls) { const el = $("log"); const line = document.createElement("div"); if (cls) line.className = cls; line.textContent = msg; el.appendChild(line); el.scrollTop = el.scrollHeight; }
 const setStatus = (s) => ($("status").textContent = s);
+
+// ------- TS language-service status (status bar): checking… → problem count
+let typeStatusTimer = null;
+function setTypeStatus(state, text) { const el = $("sbTypes"); if (!el) return; el.classList.toggle("checking", state === "checking"); el.textContent = text; }
+function refreshTypeStatus() {
+  const el = $("sbTypes"); if (!el || !editor) return;
+  const model = editor.getModel();
+  if (!model) { setTypeStatus("idle", ""); return; }
+  let errs = 0, warns = 0;
+  for (const m of monaco.editor.getModelMarkers({ resource: model.uri })) {
+    if (m.severity === monaco.MarkerSeverity.Error) errs++;
+    else if (m.severity === monaco.MarkerSeverity.Warning) warns++;
+  }
+  setTypeStatus(errs || warns ? "problems" : "ok", errs || warns ? "✕ " + errs + "  ⚠ " + warns : "✓ no problems");
+}
+function markChecking() { setTypeStatus("checking", "checking…"); clearTimeout(typeStatusTimer); typeStatusTimer = setTimeout(refreshTypeStatus, 1500); }
 const uid = () => "p-" + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
 
 // ---------------------------------------------------------------- version
@@ -625,6 +641,13 @@ require(["vs/editor/editor.main"], async () => {
 
   applyTheme(themeId); // define + set "lb-active" BEFORE creating the editor (no vs-dark flash)
   editor = monaco.editor.create($("editor"), { theme: "lb-active", automaticLayout: true, fontSize: 13, minimap: { enabled: false } });
+
+  // live TS status in the bottom bar: "checking…" while the language service
+  // validates the active file, then the error/warning count (or "no problems").
+  editor.onDidChangeModelContent(markChecking);
+  editor.onDidChangeModel(markChecking);
+  monaco.editor.onDidChangeMarkers((uris) => { const cur = editor && editor.getModel(); if (!cur) return; const u = cur.uri.toString(); if (uris.some((x) => x.toString() === u)) { clearTimeout(typeStatusTimer); refreshTypeStatus(); } });
+  markChecking();
 
   // theme selector
   const themeSel = $("themeSel");

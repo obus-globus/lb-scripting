@@ -32,6 +32,9 @@
     #statusbar #ver a { color:#fff; text-decoration:none; cursor:pointer; }
     #statusbar #ver a:hover { text-decoration:underline; opacity:.85; }
     #statusbar #sbBridge::before { content:"●"; font-size:9px; color:#9be29b; }
+    #statusbar #sbTypes { cursor:default; }
+    #statusbar #sbTypes.checking::before { content:""; width:10px; height:10px; border:1.5px solid #ffffff66; border-top-color:#fff; border-radius:50%; display:inline-block; animation:sbspin .7s linear infinite; }
+    @keyframes sbspin { to { transform:rotate(360deg); } }
     #bar button { font:inherit; background:var(--acc); color:#fff; border:0; border-radius:4px; padding:5px 10px; cursor:pointer; }
     #bar button:hover { background:var(--acc2); }
     #bar button.ghost { background:var(--bg3); color:var(--fg); }
@@ -159,6 +162,7 @@
     <div id="statusbar">
       <span id="status">booting…</span>
       <span id="sbBridge" class="sb-item" style="display:none">in-client</span>
+      <span id="sbTypes" class="sb-item" title="TypeScript language service status">type info…</span>
       <span class="spacer"></span>
       <span id="ver" title="IDE version"></span>
     </div>
