@@ -70,7 +70,18 @@
     #tmplMenu .item span, #tmplSub .item span { display:block; font-size:11px; color:var(--fgdim); }
     #tmplMenu .item:hover span, #tmplSub .item:hover span { color:#dde; }
     #tmplMenu .sep { height:1px; background:#ffffff18; margin:4px 6px; }
+    /* generic popover menu (export / build options) */
+    #pop { position:fixed; z-index:60; background:var(--bg2); border:1px solid var(--border); border-radius:6px; box-shadow:0 6px 24px #000a; padding:4px; display:none; min-width:190px; }
+    #pop .item { padding:7px 10px; border-radius:4px; cursor:pointer; display:flex; align-items:center; gap:8px; white-space:nowrap; font-size:13px; color:var(--fg); }
+    #pop .item:hover { background:var(--acc); color:#fff; }
+    #pop .item .sub { margin-left:auto; font-size:11px; color:var(--fgdim); }
+    #pop .item:hover .sub { color:#dde; }
+    #pop label.item { user-select:none; }
+    #pop label.item input { accent-color:var(--acc); }
+    #pop .sep { height:1px; background:#ffffff18; margin:4px 6px; }
     #mid { display:grid; grid-template-columns:200px 1fr; min-height:0; }
+    /* drag-and-drop import affordance */
+    .dropping { outline:2px dashed var(--acc); outline-offset:-3px; background:var(--acc2) !important; background:#4677ff14 !important; }
     #side { background:var(--bg2); border-right:1px solid var(--border); overflow:auto; font-size:13px; }
     #side::-webkit-scrollbar { width:10px; } #side::-webkit-scrollbar-thumb { background:var(--bg3); }
     #sideHead { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:8px 8px 6px 12px; font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--fgdim); position:sticky; top:0; background:var(--bg2); z-index:2; }
@@ -124,14 +135,17 @@
       <strong>LB Script IDE</strong>
       <select id="themeSel" title="editor theme"></select>
       <span class="spacer"></span>
+      <button id="format" class="ghost" title="format the current file (Shift+Alt+F)">format</button>
       <button id="rename" class="ghost">rename</button>
       <button id="share" class="ghost">share</button>
+      <button id="exportBtn" class="ghost" title="download a file or the whole project">export ▾</button>
       <button id="build">build</button>
+      <button id="buildCfg" class="ghost" title="build options">⚙</button>
       <button id="runClient" style="display:none; background:var(--run)">build &amp; run in client</button>
       <button id="autoRun" class="ghost" style="display:none" title="rebuild &amp; reload in client on every edit">hot-reload: off</button>
       <button id="dbg" class="ghost" style="display:none" title="load with a GraalJS inspector (chrome devtools)">debug: off</button>
       <button id="replBtn" class="ghost" style="display:none" title="live REPL — eval snippets in the client">repl</button>
-      <button id="download" class="ghost" disabled>download .mjs</button>
+      <button id="download" class="ghost" disabled title="download the built .mjs">download .mjs</button>
     </div>
     <div id="tabs"></div>
     <div id="ftabs"></div>
@@ -145,6 +159,9 @@
             </button>
             <button id="addFolder" title="New Folder">
               <svg viewBox="0 0 16 16"><path fill="currentColor" d="M14.5 4H8.7L7.5 2.6 7.1 2.5H1.5l-.5.5v10l.5.5h13l.5-.5V4.5l-.5-.5zM14 13H2V3.5h4.8l1.2 1.4.4.1H14V13zm-3.5-5H9V6.5H8V8H6.5v1H8v1.5h1V9h1.5V8z"/></svg>
+            </button>
+            <button id="importFiles" title="Import files…">
+              <svg viewBox="0 0 16 16"><path fill="currentColor" d="M8 1l3 3H9v4H7V4H5l3-3zM2 9h2v3h8V9h2v4a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V9z"/></svg>
             </button>
             <button id="toggleAux" title="Show supporting files (build script, lib, configs)">
               <svg viewBox="0 0 16 16"><path fill="currentColor" d="M8 3C4.5 3 1.7 5.1.5 8c1.2 2.9 4 5 7.5 5s6.3-2.1 7.5-5C14.3 5.1 11.5 3 8 3zm0 8.3A3.3 3.3 0 1 1 8 4.7a3.3 3.3 0 0 1 0 6.6zM8 6.2a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6z"/></svg>
@@ -169,6 +186,8 @@
   </div>
   <div id="tmplMenu"></div>
   <div id="tmplSub"></div>
+  <div id="pop"></div>
+  <input id="fileInput" type="file" multiple style="display:none" />
   <div id="repl">
     <div id="replHead">
       <strong>REPL</strong> <span style="color:var(--fgdim)">— eval in the client · Ctrl/Cmd+Enter to run</span>

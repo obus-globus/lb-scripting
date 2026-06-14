@@ -60,7 +60,8 @@ function buildCategory(id, name, lang, baseDir, description) {
     const full = path.join(srcRoot, e);
     if (!statSync(full).isDirectory() && isScript(e)) base[e] = read(full);
   }
-  // examples
+  // examples — only those matching the template's language (a TS template shows
+  // only TS examples, a JS template only JS), so the "+ new" picker stays coherent.
   const examples = [];
   const exRoot = path.join(srcRoot, "examples");
   if (existsSync(exRoot)) {
@@ -69,21 +70,24 @@ function buildCategory(id, name, lang, baseDir, description) {
       if (!statSync(full).isDirectory()) {
         if (!isScript(e)) continue;
         const x = e.endsWith(".js") ? "js" : "ts";
+        if (x !== ext) continue;
         examples.push({ id: slug(e), name: e.replace(/\.[a-z]+$/i, ""), files: { ["main." + x]: read(full) } });
       } else {
         const files = walkFiles(full);
-        const hasMain = Object.keys(files).some((p) => p === "main.ts" || p === "main.js");
-        if (hasMain) {
+        const mainName = "main." + ext;
+        if (mainName in files) {
           examples.push({ id: slug(e), name: e, files }); // cohesive multi-file example
-        } else {
+        } else if (!Object.keys(files).some((p) => p === "main.ts" || p === "main.js")) {
           for (const [rel, content] of Object.entries(files)) {
             const x = rel.endsWith(".js") ? "js" : "ts";
+            if (x !== ext) continue;
             examples.push({ id: slug(e + "-" + rel), name: e + "/" + rel.replace(/\.[a-z]+$/i, ""), files: { ["main." + x]: content } });
           }
         }
       }
     }
   }
+  examples.sort((a, b) => a.name.localeCompare(b.name));
   return { id, name, lang, description, base: { files: base }, aux: readAuxTree(baseDir), examples };
 }
 

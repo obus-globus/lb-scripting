@@ -46,7 +46,11 @@ let bridgeOn = false;                     // talking to the in-client host (lb-i
 let autoRun = false, debugOn = false;     // hot-reload + debug toggles (in-client)
 let hotReloadFn = null, hotTimer = null;
 const models = new Map();                 // path -> monaco model (current project only)
-let editor = null, lastBuild = null, saveTimer = null;
+let editor = null, saveTimer = null;
+let libView = null;                        // {uri,name} when viewing a read-only library/decl file
+const builds = new Map();                  // projId -> { name, code } last build (per project)
+const currentBuild = () => (proj ? builds.get(proj.id) : null);
+function syncDownloadBtn() { const dl = $("download"); if (dl) dl.disabled = !currentBuild(); }
 
 const $ = (id) => document.getElementById(id);
 function log(msg, cls) { const el = $("log"); const line = document.createElement("div"); if (cls) line.className = cls; line.textContent = msg; el.appendChild(line); el.scrollTop = el.scrollHeight; }
@@ -153,11 +157,16 @@ function openFile(path) {
   // an empty project) — fall back to the first file, or an empty editor.
   if (!path || !(path in proj.files)) path = Object.keys(proj.files)[0];
   if (!path) { proj.active = null; editor.setModel(null); renderFiles(); renderFtabs(); return; }
+  libView = null; // returning to a project file leaves any read-only library view
   proj.active = path;
   if (!proj.openTabs) proj.openTabs = [];
   if (!proj.openTabs.includes(path)) proj.openTabs.push(path);
+  // reveal in the Explorer: expand the file's ancestor folders so its row shows
+  collapsed.delete("__ROOT__");
+  { const parts = path.split("/"); let acc = ""; for (let i = 0; i < parts.length - 1; i++) { acc = acc ? acc + "/" + parts[i] : parts[i]; collapsed.delete(acc); } }
   editor.setModel(ensureModel(path));
   renderFiles(); renderFtabs(); scheduleSave();
+  const row = $("files").querySelector(".tv-row.active"); if (row) row.scrollIntoView({ block: "nearest" });
 }
 function closeTab(path) {
   proj.openTabs = (proj.openTabs || []).filter((p) => p !== path);
@@ -169,9 +178,15 @@ function closeTab(path) {
 }
 function renderFtabs() {
   const wrap = $("ftabs"); wrap.innerHTML = "";
+  if (libView) {
+    const tab = document.createElement("div"); tab.className = "ftab active"; tab.title = "read-only library / declaration file";
+    const label = document.createElement("span"); const lock = document.createElement("span"); lock.className = "dir"; lock.textContent = "🔒 "; label.appendChild(lock); label.appendChild(document.createTextNode(libView.name)); tab.appendChild(label);
+    const x = document.createElement("span"); x.className = "x"; x.textContent = "✕"; x.title = "close"; x.onclick = () => { if (proj.active && proj.files[proj.active]) openFile(proj.active); else { libView = null; renderFiles(); renderFtabs(); } };
+    tab.appendChild(x); wrap.appendChild(tab);
+  }
   for (const path of proj.openTabs || []) {
     if (!(path in proj.files)) continue;
-    const tab = document.createElement("div"); tab.className = "ftab" + (path === proj.active ? " active" : "");
+    const tab = document.createElement("div"); tab.className = "ftab" + (!libView && path === proj.active ? " active" : "");
     const slash = path.lastIndexOf("/");
     const label = document.createElement("span");
     if (slash >= 0) { const dir = document.createElement("span"); dir.className = "dir"; dir.textContent = path.slice(0, slash + 1); label.appendChild(dir); label.appendChild(document.createTextNode(path.slice(slash + 1))); }
@@ -292,7 +307,7 @@ function renderFiles() {
     }
     for (const f of node.files.sort((a, b) => a.name.localeCompare(b.name))) {
       wrap.appendChild(tvRow({
-        depth, twisty: "", iconHtml: fileIcon(f.name), label: f.name, isActive: f.path === proj.active, dim: isAux(f.path),
+        depth, twisty: "", iconHtml: fileIcon(f.name), label: f.name, isActive: !libView && f.path === proj.active, dim: isAux(f.path),
         onClick: () => openFile(f.path),
         actions: [{ title: "Delete", icon: SVG.trash, run: () => deleteFile(f.path) }],
       }));
@@ -332,6 +347,7 @@ async function createProject(catId, exampleId, opts = {}) {
 }
 async function closeProject(id) {
   await dbDel(P_STORE, id);
+  builds.delete(id);
   meta.ids = meta.ids.filter((x) => x !== id);
   if (!meta.ids.length) { await saveMeta(); return createProject("default-ts"); }
   await saveMeta();
@@ -354,6 +370,7 @@ function renderTabs() {
   }
   const plus = document.createElement("button"); plus.id = "newProj"; plus.textContent = "+ new"; plus.onclick = showTemplateMenu;
   wrap.appendChild(plus);
+  syncDownloadBtn(); // the build/download is per-project — reflect the current one
   // tab names for non-current projects are their ids until loaded; fetch names
   hydrateTabNames();
 }
@@ -567,11 +584,13 @@ async function build() {
     await initEsbuild();
     if (Object.values(proj.files).some((c) => /from\s+["']lb-inject["']/.test(c))) await ensureInjectBundle();
     const entry = entryPoint();
-    const res = await esbuild.build({ entryPoints: [entry], bundle: true, format: "esm", target: "es2022", write: false, plugins: [buildPlugins(proj.files)], legalComments: "none" });
+    const minify = !!(proj.build && proj.build.minify);
+    const res = await esbuild.build({ entryPoints: [entry], bundle: true, format: "esm", target: "es2022", write: false, plugins: [buildPlugins(proj.files)], legalComments: "none", minify });
     const code = res.outputFiles[0].text;
-    lastBuild = { name: entry.replace(/\.(ts|js)$/, "") + ".mjs", code };
-    $("download").disabled = false;
-    log("✓ built " + lastBuild.name + " — " + code.length + " bytes", "s");
+    const built = { name: entry.replace(/\.(ts|js)$/, "") + ".mjs", code };
+    builds.set(proj.id, built);
+    syncDownloadBtn();
+    log("✓ built " + built.name + " — " + code.length + " bytes", "s");
     for (const w of res.warnings) log("warn: " + w.text, "d");
     setStatus("build ok");
   } catch (e) {
@@ -581,7 +600,73 @@ async function build() {
     setStatus("build failed");
   } finally { $("build").disabled = false; }
 }
-function download() { if (!lastBuild) return; const blob = new Blob([lastBuild.code], { type: "text/javascript" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = lastBuild.name; a.click(); URL.revokeObjectURL(a.href); }
+function saveBlob(content, filename, type) { const blob = new Blob([content], { type: type || "application/octet-stream" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 0); }
+function download() { const b = currentBuild(); if (!b) return; saveBlob(b.code, b.name, "text/javascript"); }
+
+// ---- downloads: current file + whole project as a (stored) .zip ----------
+const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1); t[n] = c >>> 0; } return t; })();
+function crc32(bytes) { let c = 0xffffffff; for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
+// Minimal ZIP writer (store/no-compression) — enough to bundle a project's text files.
+function makeZip(entries) {
+  const enc = new TextEncoder(); const chunks = []; const central = []; let offset = 0;
+  const u16 = (n) => [n & 255, (n >>> 8) & 255]; const u32 = (n) => [n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255];
+  for (const e of entries) {
+    const name = enc.encode(e.name); const data = e.data; const crc = crc32(data);
+    const local = [0x50, 0x4b, 0x03, 0x04, ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(name.length), ...u16(0)];
+    chunks.push(new Uint8Array(local), name, data);
+    central.push([0x50, 0x4b, 0x01, 0x02, ...u16(20), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(name.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(offset), name]);
+    offset += local.length + name.length + data.length;
+  }
+  let cdSize = 0; const cdChunks = [];
+  for (const c of central) { const arr = []; for (const x of c) { if (x instanceof Uint8Array) arr.push(...x); else arr.push(x); } const u = new Uint8Array(arr); cdChunks.push(u); cdSize += u.length; }
+  const end = new Uint8Array([0x50, 0x4b, 0x05, 0x06, ...u16(0), ...u16(0), ...u16(entries.length), ...u16(entries.length), ...u32(cdSize), ...u32(offset), ...u16(0)]);
+  const all = [...chunks, ...cdChunks, end]; let total = 0; for (const c of all) total += c.length;
+  const out = new Uint8Array(total); let p = 0; for (const c of all) { out.set(c, p); p += c.length; }
+  return out;
+}
+function activeFileName() { const m = editor && editor.getModel(); if (!m) return ""; const uri = m.uri.toString(); const prefix = proj ? "file:///" + proj.id + "/" : ""; return (prefix && uri.startsWith(prefix)) ? decodeURIComponent(uri.slice(prefix.length)) : decodeURIComponent(uri).split("/").pop(); }
+function downloadCurrentFile() { const m = editor && editor.getModel(); if (!m) return; const name = (activeFileName() || "file.txt").split("/").pop(); saveBlob(m.getValue(), name, "text/plain"); }
+function downloadProjectZip() { if (!proj) return; const enc = new TextEncoder(); const entries = Object.keys(proj.files).sort().map((name) => ({ name, data: enc.encode(proj.files[name]) })); saveBlob(makeZip(entries), (proj.name || "project").replace(/[^a-z0-9._-]+/gi, "_") + ".zip", "application/zip"); }
+
+// ---- format the current file via the TS worker ---------------------------
+async function formatActive() {
+  const model = editor && editor.getModel(); if (!model) return;
+  if (editor.getOption(monaco.editor.EditorOption.readOnly)) { setStatus("read-only — not formatted"); return; }
+  try {
+    const getWorker = await monaco.languages.typescript.getTypeScriptWorker();
+    const client = await getWorker(model.uri);
+    const opts = { tabSize: 2, indentSize: 2, convertTabsToSpaces: true, insertSpaceAfterCommaDelimiter: true, insertSpaceAfterSemicolonInForStatements: true, insertSpaceBeforeAndAfterBinaryOperators: true, insertSpaceAfterKeywordsInControlFlowStatements: true, insertSpaceAfterFunctionKeywordForAnonymousFunctions: true, insertSpaceBeforeFunctionParenthesis: false, insertSpaceAfterOpeningAndBeforeClosingNonemptyParenthesis: false, placeOpenBraceOnNewLineForFunctions: false, placeOpenBraceOnNewLineForControlBlocks: false, semicolons: "insert" };
+    const edits = await client.getFormattingEditsForDocument(model.uri.toString(), opts);
+    if (!edits || !edits.length) { setStatus("already formatted"); return; }
+    editor.executeEdits("format", edits.map((e) => ({ range: monaco.Range.fromPositions(model.getPositionAt(e.span.start), model.getPositionAt(e.span.start + e.span.length)), text: e.newText })));
+    editor.pushUndoStop(); setStatus("formatted");
+  } catch (e) { log("format failed: " + (e && e.message || e), "e"); }
+}
+
+// ---- file import (button + drag-and-drop) --------------------------------
+function importOneFile(path, content) {
+  path = path.replace(/^\/+/, "").replace(/\\/g, "/");
+  if (path in proj.files) { const dot = path.lastIndexOf("."); const b = dot >= 0 ? path.slice(0, dot) : path; const x = dot >= 0 ? path.slice(dot) : ""; let i = 1; while ((b + "-" + i + x) in proj.files) i++; path = b + "-" + i + x; }
+  proj.files[path] = content; return path;
+}
+async function importFiles(fileList) {
+  const arr = [...(fileList || [])]; if (!arr.length || !proj) return;
+  let last = null;
+  for (const f of arr) { try { const text = await f.text(); last = importOneFile((f.webkitRelativePath && f.webkitRelativePath.length ? f.webkitRelativePath : f.name), text); } catch { /* */ } }
+  if (last) { openFile(last); log("imported " + arr.length + " file(s)", "s"); }
+}
+
+// ---- a tiny popover menu (export / build options) ------------------------
+function hidePop() { const p = $("pop"); p.style.display = "none"; p.innerHTML = ""; document.removeEventListener("mousedown", popDismiss, true); }
+function popDismiss(e) { const p = $("pop"); if (!p.contains(e.target)) hidePop(); }
+function showPop(anchor, build) {
+  const p = $("pop"); p.innerHTML = ""; build(p); p.style.display = "block";
+  const r = anchor.getBoundingClientRect();
+  p.style.left = Math.max(6, Math.min(r.left, window.innerWidth - p.offsetWidth - 8)) + "px";
+  p.style.top = (r.bottom + 4) + "px";
+  setTimeout(() => document.addEventListener("mousedown", popDismiss, true), 0);
+}
+function popItem(label, onClick, sub) { const d = document.createElement("div"); d.className = "item"; d.appendChild(document.createTextNode(label)); if (sub) { const s = document.createElement("span"); s.className = "sub"; s.textContent = sub; d.appendChild(s); } d.onclick = () => { hidePop(); onClick(); }; return d; }
 
 // ---------------------------------------------------------------- themes
 // Each theme drives the CSS design tokens + a Monaco color theme. The
@@ -675,7 +760,14 @@ require(["vs/editor/editor.main"], async () => {
     }
     let m = monaco.editor.getModel(resource) || libModels.get(uri);
     if (!m) { const lib = libByUri.get(uri); if (lib) { m = monaco.editor.createModel(lib.content, "typescript", monaco.Uri.parse(lib.filePath)); libModels.set(uri, m); } }
-    if (m) { editor.setModel(m); return m; }
+    if (m) {
+      // a library / unlisted file: read-only, surfaced as a transient locked tab,
+      // and the Explorer selection is cleared (it isn't a project file)
+      const decoded = decodeURIComponent(uri.replace(/^file:\/\/\//, "")).replace(/^node_modules\//, "").replace(/^@types\//, "");
+      libView = { uri, name: decoded.split("/").slice(-2).join("/") };
+      editor.setModel(m); renderFiles(); renderFtabs();
+      return m;
+    }
     return null;
   }
   const revealSpan = (model, start, length) => {
@@ -735,6 +827,22 @@ require(["vs/editor/editor.main"], async () => {
 
   $("build").onclick = build;
   $("download").onclick = download;
+  $("format").onclick = formatActive;
+  editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyF, formatActive);
+  $("exportBtn").onclick = () => showPop($("exportBtn"), (el) => {
+    el.appendChild(popItem("Current file", downloadCurrentFile, activeFileName().split("/").pop() || "—"));
+    el.appendChild(popItem("Project (.zip)", downloadProjectZip, (Object.keys(proj.files).length) + " files"));
+    const b = currentBuild(); if (b) { const sep = document.createElement("div"); sep.className = "sep"; el.appendChild(sep); el.appendChild(popItem("Built .mjs", download, b.name)); }
+  });
+  $("buildCfg").onclick = () => showPop($("buildCfg"), (el) => {
+    const lbl = document.createElement("label"); lbl.className = "item";
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !!(proj.build && proj.build.minify);
+    cb.onchange = () => { proj.build = proj.build || {}; proj.build.minify = cb.checked; scheduleSave(); };
+    lbl.appendChild(cb); lbl.appendChild(document.createTextNode("Minify output")); el.appendChild(lbl);
+    const note = document.createElement("div"); note.className = "item"; note.style.cursor = "default"; note.style.fontSize = "11px"; note.style.color = "var(--fgdim)"; note.textContent = "applies to the next build · per project"; el.appendChild(note);
+  });
+  $("importFiles").onclick = () => { const inp = $("fileInput"); inp.value = ""; inp.onchange = () => importFiles(inp.files); inp.click(); };
+  for (const id of ["editor", "side"]) { const el = $(id); el.addEventListener("dragover", (e) => { e.preventDefault(); el.classList.add("dropping"); }); el.addEventListener("dragleave", (e) => { if (e.target === el) el.classList.remove("dropping"); }); el.addEventListener("drop", (e) => { e.preventDefault(); el.classList.remove("dropping"); if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) importFiles(e.dataTransfer.files); }); }
 
   // Host-bridge mode: when served by the in-client server (lb-ide-host), an
   // /api/ping responds — then offer "build & run in client" (loads the built
@@ -761,8 +869,9 @@ require(["vs/editor/editor.main"], async () => {
   })();
   async function loadToClient() {
     await build();
-    if (!lastBuild) return;
-    const res = await apiFetch("api/load", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: proj.name, mjs: lastBuild.code, debug: debugOn }) }).then((r) => r.json());
+    const b = currentBuild();
+    if (!b) return;
+    const res = await apiFetch("api/load", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: proj.name, mjs: b.code, debug: debugOn }) }).then((r) => r.json());
     if (res.ok) {
       log("✓ loaded into client as " + res.name + (res.debugPort ? " · inspector on :" + res.debugPort : ""), "s");
       if (res.debugPort) log("attach a debugger: open chrome://inspect (or VS Code) → localhost:" + res.debugPort, "d");
@@ -846,12 +955,19 @@ require(["vs/editor/editor.main"], async () => {
     closeProject: (id) => closeProject(id),
     setActiveValue: (v) => editor.getModel().setValue(v),
     diagnostics: async () => { const m = editor.getModel(); const gw = await monaco.languages.typescript.getTypeScriptWorker(); const c = await gw(m.uri); const u = m.uri.toString(); const ds = [...(await c.getSyntacticDiagnostics(u)), ...(await c.getSemanticDiagnostics(u))]; return ds.map((d) => ({ code: d.code, message: typeof d.messageText === "string" ? d.messageText : d.messageText.messageText })); },
-    build: async () => { await build(); return lastBuild; },
+    build: async () => { await build(); return currentBuild(); },
     share: () => shareProject(),
     activeContent: () => editor.getModel().getValue(),
     // in-page exercise of the share decode→validate→import path (no page reload)
     loadShareFragment: async (frag) => { let p = null; try { p = await decodeShare("share=" + frag); } catch { /* */ } if (p && validShare(p)) { await importShared(p); return { imported: true }; } return { imported: false }; },
     gotoDefinition: async (line, col) => { await gotoDefinition(editor.getModel(), { lineNumber: line, column: col }); const m = editor.getModel(); return { uri: m.uri.toString(), readOnly: editor.getOption(monaco.editor.EditorOption.readOnly), sel: editor.getSelection() }; },
+    libView: () => libView,
+    activeRowVisible: () => { const r = $("files").querySelector(".tv-row.active"); if (!r) return false; const cr = r.getBoundingClientRect(), pr = $("side").getBoundingClientRect(); return cr.top >= pr.top - 1 && cr.bottom <= pr.bottom + 1; },
+    format: async () => { await formatActive(); return editor.getModel().getValue(); },
+    setMinify: (v) => { proj.build = { ...(proj.build || {}), minify: !!v }; },
+    exportZipBytes: () => { const enc = new TextEncoder(); return Array.from(makeZip(Object.keys(proj.files).sort().map((n) => ({ name: n, data: enc.encode(proj.files[n]) })))); },
+    importText: (name, content) => { const p = importOneFile(name, content); openFile(p); return p; },
+    downloadBtnDisabled: () => $("download").disabled,
     themes: () => Object.keys(THEMES),
     theme: () => themeId,
     setTheme: (id) => applyTheme(id),
