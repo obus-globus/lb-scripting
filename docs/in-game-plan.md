@@ -135,14 +135,23 @@ A normal LB TS script (built with our template — dogfooding):
 ## 6. Phases
 
 ```
-P0  Spike: open CEF → our PUBLIC editor URL (option A), prove Monaco + a build
-    work inside CEF, keyboard input included.  (highest-risk first — see §7)
-P1  Host bridge endpoints (ping, projects, save, load) + editor "host bridge" mode
-    (Build & Load in client; persist to disk).
-P2  Open/edit installed scripts from ScriptManager.root.
-P3  Self-contained packaging (option B): bundle dist/ + serve from HttpServer.
-P4  Polish: keybind, opacity/blur like NodeFlow, error toasts, "unload" command.
+P0  Spike: open CEF → editor, prove Monaco + a build work inside CEF, keyboard
+    input included.  ⟶ host code written + type-checks/builds; CEF + KEYBOARD
+    still need a REAL client to confirm (the open item).
+P1  Host bridge endpoints (ping, load, save, projects) + editor "host bridge"
+    mode (Build & Run in client; persist to disk).            ✅ DONE (verified
+    headless against a mock host)
+P2  Open/edit installed scripts from ScriptManager.root (GET /api/script) +
+    disk-backed project persistence (restore on open).         ✅ DONE (headless)
+P3  Self-contained packaging: `host: npm run package` → release/ (script +
+    editor build) + a ~7.4 MB zip to drop into the LB folder.  ✅ DONE
+P4  Polish: keybind, opacity/blur like NodeFlow, error toasts, "unload" command,
+    in-host server serves assets so option-A public URL isn't needed.   (todo)
 ```
+
+The remaining hard dependency is a **real client run** to validate CEF rendering
++ keyboard (§7.1). Everything else is implemented under `../host/` and the
+editor's bridge mode in `../app/`.
 
 ---
 

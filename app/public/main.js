@@ -35,6 +35,7 @@ let baseExtraLibs = [];
 
 let meta = { ids: [], current: null };   // open project tabs + selection
 let proj = null;                          // current project { id, name, templateId, files, active }
+let bridgeOn = false;                     // talking to the in-client host (lb-ide-host)
 const models = new Map();                 // path -> monaco model (current project only)
 let editor = null, lastBuild = null, saveTimer = null;
 
@@ -283,13 +284,58 @@ function showTemplateMenu() {
     item.onclick = () => { menu.style.display = "none"; createProject(t.id); };
     menu.appendChild(item);
   }
+  if (bridgeOn) {
+    const sep = document.createElement("div"); sep.className = "sep"; menu.appendChild(sep);
+    const item = document.createElement("div"); item.className = "item";
+    item.innerHTML = "<b>Open installed script…</b><span>edit a script already in LiquidBounce</span>";
+    item.onclick = () => { menu.style.display = "none"; openInstalledScriptPicker(); };
+    menu.appendChild(item);
+  }
   const r = $("newProj").getBoundingClientRect();
   menu.style.left = Math.max(6, r.left) + "px"; menu.style.top = r.bottom + 4 + "px"; menu.style.display = "block";
 }
+
+// Bridge: list installed scripts, open the chosen one as a single-file project.
+async function openInstalledScriptPicker() {
+  let names = [];
+  try { names = await fetch(BASE + "api/scripts").then((r) => r.json()); } catch { /* */ }
+  if (!names || !names.length) { log("no installed scripts found", "d"); return; }
+  const menu = $("tmplMenu"); menu.innerHTML = "";
+  for (const name of names) {
+    const item = document.createElement("div"); item.className = "item";
+    item.innerHTML = "<b>" + name + "</b><span>open from LiquidBounce scripts/</span>";
+    item.onclick = async () => {
+      menu.style.display = "none";
+      try {
+        const res = await fetch(BASE + "api/script?name=" + encodeURIComponent(name)).then((r) => r.json());
+        if (!res.ok) { log("could not read " + name, "e"); return; }
+        await openAsProject(name, res.content);
+      } catch (e) { log("open failed: " + (e && e.message || e), "e"); }
+    };
+    menu.appendChild(item);
+  }
+  const r = $("newProj").getBoundingClientRect();
+  menu.style.left = Math.max(6, r.left) + "px"; menu.style.top = r.bottom + 4 + "px"; menu.style.display = "block";
+}
+
+// Create a single-file project from raw content (used for installed scripts).
+async function openInstalledScriptProject(filename, content) {
+  const lang = filename.endsWith(".js") || filename.endsWith(".mjs") ? "js" : "ts";
+  const entry = lang === "js" ? "main.js" : "main.ts";
+  proj = { id: uid(), name: filename, templateId: "installed", files: { [entry]: content }, aux: [], folders: [], openTabs: [entry], active: entry, updatedAt: Date.now() };
+  meta.ids.push(proj.id); meta.current = proj.id;
+  await saveProject(); await saveMeta();
+  disposeModels(); ensureModel(entry);
+  location.hash = proj.id; openFile(entry); renderTabs();
+}
+const openAsProject = openInstalledScriptProject;
 document.addEventListener("click", (e) => { const m = $("tmplMenu"); if (m.style.display === "block" && !m.contains(e.target) && e.target.id !== "newProj") m.style.display = "none"; });
 
 function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(() => { saveProject(); saveMeta(); }, 300); }
-async function saveProject() { if (!proj) return; proj.updatedAt = Date.now(); await dbPut(P_STORE, proj.id, proj); }
+async function saveProject() { if (!proj) return; proj.updatedAt = Date.now(); await dbPut(P_STORE, proj.id, proj); if (bridgeOn) bridgeSave(proj); }
+// Mirror saves to the in-client host so projects persist on disk (CEF IndexedDB
+// may be ephemeral). Fire-and-forget; the local copy is the source of truth.
+function bridgeSave(p) { try { fetch(BASE + "api/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(p) }).catch(() => {}); } catch { /* */ } }
 async function saveMeta() { await dbPut(M_STORE, "open", meta); }
 
 // ---------------------------------------------------------------- build
@@ -381,11 +427,22 @@ require(["vs/editor/editor.main"], async () => {
   // /api/ping responds — then offer "build & run in client" (loads the built
   // .mjs straight into LiquidBounce). On the plain web deploy this 404s and the
   // button stays hidden, so this is purely additive.
-  let bridge = false;
   (async () => {
     try {
       const r = await fetch(BASE + "api/ping", { method: "GET" });
-      if (r.ok && (await r.json()).ok) { bridge = true; $("runClient").style.display = ""; log("connected to LiquidBounce (in-client) — 'build & run in client' enabled", "d"); }
+      if (!(r.ok && (await r.json()).ok)) return;
+      bridgeOn = true;
+      $("runClient").style.display = "";
+      log("connected to LiquidBounce (in-client) — projects persist on disk; 'build & run in client' enabled", "d");
+      // pull any projects saved on disk (durable across CEF sessions) into the tabs
+      try {
+        const disk = await fetch(BASE + "api/projects").then((x) => x.json());
+        let added = 0;
+        for (const dp of disk || []) {
+          if (dp && dp.id && !meta.ids.includes(dp.id)) { await dbPut(P_STORE, dp.id, dp); meta.ids.push(dp.id); added++; }
+        }
+        if (added) { await saveMeta(); renderTabs(); log("restored " + added + " project(s) from disk", "d"); }
+      } catch { /* */ }
     } catch { /* not in-client */ }
   })();
   $("runClient").onclick = async () => {

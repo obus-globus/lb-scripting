@@ -13,7 +13,7 @@
 declare const Java: { type(name: string): unknown };
 declare const UnsafeThread: { run(fn: () => void): unknown };
 
-import { loadBuiltScript, listScripts, scriptsRoot, type LoadResult } from "./scriptLoader";
+import { loadBuiltScript, listScripts, readScript, scriptsRoot, type LoadResult } from "./scriptLoader";
 
 type Jany = { [k: string]: unknown } & ((...a: unknown[]) => unknown);
 const T = (n: string): Jany => Java.type(n) as unknown as Jany;
@@ -144,6 +144,12 @@ export function startServer(opts: ServerOpts): boolean {
       if (path === "/api/ping") { writeText(outs, 200, "OK", MIME.json, JSON.stringify({ ok: true, root: scriptsRoot() })); sock.close(); return; }
       if (path === "/api/close") { try { opts.onClose(); } catch { /* */ } writeText(outs, 200, "OK", MIME.json, JSON.stringify({ ok: true })); sock.close(); return; }
       if (method === "GET" && path === "/api/scripts") { writeText(outs, 200, "OK", MIME.json, JSON.stringify(listScripts())); sock.close(); return; }
+      if (method === "GET" && path === "/api/script") {
+        const txt = readScript(req.query.name || "");
+        if (txt == null) writeText(outs, 404, "Not Found", MIME.json, JSON.stringify({ ok: false }));
+        else writeText(outs, 200, "OK", MIME.json, JSON.stringify({ ok: true, name: req.query.name, content: txt }));
+        sock.close(); return;
+      }
       if (method === "GET" && path === "/api/projects") { writeText(outs, 200, "OK", MIME.json, JSON.stringify(readProjects())); sock.close(); return; }
       if (method === "POST" && path === "/api/save") {
         try {

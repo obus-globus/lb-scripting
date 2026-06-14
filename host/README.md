@@ -28,6 +28,20 @@ The editor (the esbuild-wasm edition in [`../app/`](../app/)) builds the `.mjs`
 
 ## Install
 
+### Easiest: `npm run package`
+```bash
+npm install && npm run package
+```
+Builds the editor + this script and assembles `release/` (and `lb-ide-ingame.zip`,
+~7.4 MB). Unzip into your LiquidBounce config folder so you get:
+```
+<LB config root>/scripts/lb-ide-host.mjs
+<LB config root>/lb-ide-editor/...
+```
+Then `.script reload` (or restart) and `.ide`. (See `release/INSTALL.txt`.)
+
+### Manual
+
 1. **Build the editor** and copy it next to LiquidBounce:
    ```bash
    cd ../app && npm install && npm run build-dist

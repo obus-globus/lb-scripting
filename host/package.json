@@ -6,6 +6,7 @@
   "description": "LiquidBounce script that opens the LB Script IDE in-game (CEF) and loads built scripts into the client.",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "package": "node scripts/package.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "license": "MIT",

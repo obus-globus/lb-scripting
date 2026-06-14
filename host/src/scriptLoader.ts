@@ -103,3 +103,17 @@ export function listScripts(): string[] {
 export function scriptsRoot(): string | null {
   try { const sm = scriptManager(); return sm ? String((sm.root as { getAbsolutePath(): unknown }).getAbsolutePath()) : null; } catch { return null; }
 }
+
+/** Read an installed script's text by filename (so the editor can open it). */
+export function readScript(name: string): string | null {
+  try {
+    const root = scriptsRoot(); if (!root) return null;
+    const fname = (name || "").replace(/[^a-z0-9._-]/gi, "_");
+    if (!fname) return null;
+    const Files = T("java.nio.file.Files"); const Paths = T("java.nio.file.Paths");
+    if (!Files || !Paths) return null;
+    const p = (Paths.get as (a: string, b: string) => unknown)(root, fname);
+    if (!(Files.exists as (x: unknown) => boolean)(p)) return null;
+    return String((Files.readString as (x: unknown) => unknown)(p));
+  } catch { return null; }
+}

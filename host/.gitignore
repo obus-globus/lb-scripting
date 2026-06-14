@@ -1,3 +1,5 @@
 node_modules/
 package-lock.json
 dist/
+release/
+lb-ide-ingame.zip
