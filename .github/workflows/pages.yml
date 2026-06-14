@@ -1,12 +1,9 @@
-name: deploy editor to Pages
-
-# Builds the static editor (apps/editor -> dist/) and publishes it to GitHub
-# Pages. The editor is base-path-aware (document.baseURI), so it works under the
-# project subpath (/<repo>/). No COOP/COEP needed (esbuild-wasm, not WebContainers).
+name: Deploy editor to Pages
 
 on:
   push:
-    branches: [master]
+    branches:
+      - master
   workflow_dispatch:
 
 permissions:
@@ -22,17 +19,22 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - uses: actions/configure-pages@v5
-      - name: Build editor (postinstall: typings + templates + asset links)
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+      - name: Install (postinstall builds typings + templates + asset links)
         working-directory: apps/editor
         run: npm install --no-audit --no-fund
       - name: Assemble static dist
         working-directory: apps/editor
         run: npm run build-dist
-      - uses: actions/upload-pages-artifact@v3
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
         with:
           path: apps/editor/dist
 
@@ -41,7 +43,8 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: "${{ steps.deployment.outputs.page_url }}"
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - id: deployment
+      - name: Deploy to GitHub Pages
+        id: deployment
         uses: actions/deploy-pages@v4
