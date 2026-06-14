@@ -66,27 +66,43 @@ function cmpVer(a, b) {
   }
   return 0;
 }
-async function checkVersion() {
+// Render "vX.Y.Z" in the status bar — a link to the GitHub repo — and, when an
+// update is available, append a "update → vX" link to that release.
+function renderVer(update) {
   const el = $("ver");
+  if (!el) return;
   const cur = IDE.version || "";
-  if (el) el.textContent = cur ? "v" + cur : "";
-  if (!el || !cur || !IDE.repo) return;
-  let ctrl = null, timer = null;
+  el.textContent = "";
+  el.title = "IDE version — open the repo on GitHub";
+  if (cur && IDE.repo) {
+    const a = document.createElement("a");
+    a.href = "https://github.com/" + IDE.repo; a.target = "_blank"; a.rel = "noopener noreferrer";
+    a.textContent = "v" + cur;
+    el.appendChild(a);
+  } else el.textContent = cur ? "v" + cur : "";
+  if (update) {
+    el.appendChild(document.createTextNode(" · "));
+    const a = document.createElement("a");
+    a.href = update.url; a.target = "_blank"; a.rel = "noopener noreferrer";
+    a.textContent = "update → v" + update.tag;
+    a.title = "A newer release (" + update.label + ") is available on GitHub";
+    el.appendChild(a);
+  }
+}
+async function checkVersion() {
+  const cur = IDE.version || "";
+  renderVer(null);
+  if (!cur || !IDE.repo) return;
+  let timer = null;
   try {
-    ctrl = new AbortController();
+    const ctrl = new AbortController();
     timer = setTimeout(() => ctrl.abort(), 3000);
     const r = await fetch("https://api.github.com/repos/" + IDE.repo + "/releases/latest", { headers: { Accept: "application/vnd.github+json" }, signal: ctrl.signal });
     if (!r.ok) return;
     const rel = await r.json();
     const tag = String(rel.tag_name || "").replace(/^v/, "");
-    if (tag && cmpVer(tag, cur) > 0) {
-      el.textContent = "v" + cur + " · ";
-      const a = document.createElement("a");
-      a.href = rel.html_url || ("https://github.com/" + IDE.repo + "/releases"); a.target = "_blank"; a.rel = "noopener noreferrer";
-      a.textContent = "update → v" + tag;
-      el.title = "A newer release (" + (rel.tag_name || tag) + ") is available on GitHub";
-      el.appendChild(a);
-    }
+    if (tag && cmpVer(tag, cur) > 0)
+      renderVer({ tag, label: rel.tag_name || tag, url: rel.html_url || ("https://github.com/" + IDE.repo + "/releases") });
   } catch { /* offline / aborted / rate-limited — ignore */ }
   finally { if (timer) clearTimeout(timer); }
 }
