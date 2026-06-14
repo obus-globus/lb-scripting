@@ -4,7 +4,7 @@
 
 ```
 apps/
-  editor/      browser IDE (Monaco + esbuild-wasm); deployed at host.example/lb-ide/
+  editor/      browser IDE (Monaco + esbuild-wasm) — static site, host behind any proxy
   host/        lb-ide-host — the in-game LB script that opens the editor (CEF)
 packages/
   lb-inject/   runtime bytecode-injection library (the inject template depends on it)

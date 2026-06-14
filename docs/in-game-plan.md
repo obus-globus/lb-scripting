@@ -72,9 +72,8 @@ the script runs live, no game restart.
   StackBlitz proxy → unsuitable for the CEF/localhost context. Do **not** use it.
 
 ### 3b. How the editor reaches CEF — two options
-- **A. Public URL.** Point CEF at a public, no-auth copy of the editor
-  (e.g. `http://host.example/lb-ide-game/` on the **public `cb`** host — *not* the
-  Access-gated `cbs`). Exactly how NodeFlow serves its editor publicly for CEF.
+- **A. Public URL.** Point CEF at a public, no-auth copy of the editor served
+  over plain HTTP (so the localhost bridge isn't blocked as mixed content).
   Pros: zero asset bundling, instant updates. Cons: needs network; ~3.7 MB first
   load (cached by CEF after).
 - **B. In-process localhost server.** Bundle the editor's `dist/` (~37 MB:

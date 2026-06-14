@@ -6,7 +6,8 @@ TypeScript/JS scripts, with full type-checking and a real build entirely
 client-side (no backend), plus an **in-game** mode that opens the editor inside
 the Minecraft client and loads scripts straight into LiquidBounce.
 
-Live (Cloudflare-Access gated): `https://host.example/lb-ide/`
+The editor is a static site — host it behind any reverse proxy, or run it
+locally with `npm run serve`.
 
 ```
 apps/
