@@ -1,29 +1,23 @@
-// @ts-check
+/// <reference types="@wunk/lb-script-api-types/ambient" />
 //
-// nearest-mob.js — every N ticks, prints the nearest entity to the player
-// along with its distance.
+// nearest-mob.ts — every N ticks, prints the nearest entity to the player and
+// its distance.
 //
-// What this example shows:
-//   • `Setting.float` with a `range:` for a continuous slider.
-//   • `Setting.int` for the tick interval (throttling).
+// What this starter showcases:
+//   • `Setting.float` with a `range:` for a continuous slider, and
+//     `Setting.int` for the tick interval (throttling).
 //   • Iterating world entities via `mc.level.entitiesForRendering()` and
-//     filtering manually. (Aside: `Level.getEntities(except, AABB, filter)`
-//     exists on the base `Level` class, but `mc.level` is typed as
-//     `ClientLevel` which redeclares `getEntities` with a 0-arg form —
-//     so the 3-arg overload is invisible to the type checker. Hence
-//     this iterate-and-filter pattern.)
-//   • Vector math against `mc.player.position()` (a Vec3 from the
-//     scripting API surface). We compare squared distances inside the
-//     loop and only call `Math.sqrt` once at the end — standard trick
-//     to avoid 100s of square roots per scan.
-//   • A simple tick-counter throttle so we don't spam chat every tick.
+//     filtering manually.
+//   • A neat TS trick to type the loop's "best so far" without naming the
+//     entity class: take the element type of the (typed) entity list, so
+//     `nearest` is `Entity | null` and its methods are checked.
+//   • Squared-distance comparison inside the loop (only one `Math.sqrt` at
+//     the end) and a tick-counter throttle so we don't spam chat.
 //
-// Prereqs: be in a world with mobs nearby. The example reports any
-// entity (you included if you don't filter yourself out — see the
-// `e === mc.player` guard).
+// Prereqs: be in a world with mobs nearby.
 
 const script = registerScript({
-    name: "NearestMobJS",
+    name: "NearestMobTS",
     version: "0.1.0",
     authors: ["you"],
 });
@@ -41,7 +35,7 @@ const INTERVAL_TICKS = Setting.int({
 });
 
 script.registerModule({
-    name: "NearestMobJS",
+    name: "NearestMobTS",
     category: "Misc",
     description: "Prints the nearest entity and its distance periodically.",
 }, (mod) => {
@@ -57,10 +51,13 @@ script.registerModule({
         const myId = me.getId();
         const range = RANGE.get();
 
-        let nearest = null;
+        // Materialise the iterable so we can name its element type below.
+        const entities = [...mc.level.entitiesForRendering()];
+        // `nearest` is the element type (an Entity) or null — fully typed.
+        let nearest: (typeof entities)[number] | null = null;
         let bestDistSq = range * range;
 
-        for (const e of mc.level.entitiesForRendering()) {
+        for (const e of entities) {
             if (e.getId() === myId) continue;
             const p = e.position();
             const dx = myPos.x - p.x;

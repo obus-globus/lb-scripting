@@ -33,7 +33,12 @@ const cats = await page.evaluate(() => window.__ide.categories());
 ok(["default-ts", "plain-js", "starter-ts", "inject-ts"].every((id) => cats.some((c) => c.id === id)), "4 categories: " + cats.map((c) => c.id).join(","));
 const def = cats.find((c) => c.id === "default-ts");
 ok(def.baseFiles.length === 1 && def.baseFiles[0] === "main.ts", "base project is just main.ts (no examples bundled): " + JSON.stringify(def.baseFiles));
-ok(def.examples.length > 5, "default category exposes example projects: " + def.examples.length);
+ok(def.examples.length >= 2, "default category exposes example projects: " + def.examples.length);
+// each category should have unique examples (no example name shared across categories)
+const exByName = {};
+for (const c of cats) for (const e of c.examples) (exByName[e.name] ||= []).push(c.id);
+const shared = Object.entries(exByName).filter(([, ids]) => ids.length > 1);
+ok(shared.length === 0, "examples are unique per category (no duplicates): " + JSON.stringify(shared));
 const src0 = await page.evaluate(() => { const aux = window.__ide.auxFiles(); return window.__ide.listFiles().filter((f) => !aux.includes(f)); });
 ok(src0.length === 1 && src0[0] === "main.ts", "opened blank project has only main.ts (excl. aux): " + JSON.stringify(src0));
 const d0 = await page.evaluate(() => window.__ide.diagnostics());
