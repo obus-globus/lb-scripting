@@ -205,6 +205,17 @@ function renderFtabs() {
 }
 
 const collapsed = new Set(); // folder paths the user has collapsed (per session)
+const LIBROOT = "lib::__ROOT__"; collapsed.add(LIBROOT); // node_modules starts collapsed (like VS Code)
+// path of a library file relative to node_modules (e.g. @types/lb-inject/index.d.ts)
+const libRelPath = (uri) => decodeURIComponent(uri.replace(/^file:\/\/\//, "")).replace(/^node_modules\//, "");
+function buildLibTree() {
+  const root = { dirs: new Map(), files: [] };
+  const ensureDir = (parts) => { let n = root, acc = ""; for (const p of parts) { acc = acc ? acc + "/" + p : p; if (!n.dirs.has(p)) n.dirs.set(p, { path: acc, dirs: new Map(), files: [] }); n = n.dirs.get(p); } return n; };
+  for (const lf of libFiles.values()) { const parts = libRelPath(lf.uri).split("/"); const file = parts.pop(); ensureDir(parts).files.push({ name: file, uri: lf.uri }); }
+  return root;
+}
+// expand node_modules + the ancestor folders of a library file so it's visible
+function revealLibPath(uri) { collapsed.delete(LIBROOT); const parts = libRelPath(uri).split("/"); parts.pop(); let acc = ""; for (const p of parts) { acc = acc ? acc + "/" + p : p; collapsed.delete("lib::" + acc); } }
 const isAux = (path) => !!(proj && proj.aux && proj.aux.includes(path));
 let showAux = localStorage.getItem("lb-ide:showAux") === "1";
 function setShowAux(v) { showAux = !!v; localStorage.setItem("lb-ide:showAux", showAux ? "1" : "0"); const b = $("toggleAux"); if (b) b.classList.toggle("on", showAux); renderFiles(); }
@@ -322,16 +333,24 @@ function renderFiles() {
   };
   render(buildTree(filter), 1);
 
-  // Libraries — read-only declaration files (.d.ts) you've navigated into via
-  // Go to Definition (lb-inject, @wunk types, …). Lets you browse/re-open them.
+  // node_modules — read-only declaration files (.d.ts) for the libraries (lb-inject,
+  // @wunk types, …), shown as a real nested folder tree like VS Code. Collapsed by
+  // default; Go to Definition expands the path to the file it opened.
   if (libFiles.size) {
-    const LIBS = "__LIBS__"; const libsClosed = collapsed.has(LIBS);
-    wrap.appendChild(tvRow({
-      depth: 0, twisty: libsClosed ? "closed" : "open", iconHtml: "", label: "Libraries", isRoot: true,
-      onClick: () => { if (libsClosed) collapsed.delete(LIBS); else collapsed.add(LIBS); renderFiles(); },
-    }));
-    if (!libsClosed) for (const lf of [...libFiles.values()].sort((a, b) => a.name.localeCompare(b.name)))
-      wrap.appendChild(tvRow({ depth: 1, twisty: "", iconHtml: SVG.lib, label: lf.name, dim: true, isActive: !!libView && libView.uri === lf.uri, onClick: () => openLib(lf.uri) }));
+    const rootClosed = collapsed.has(LIBROOT);
+    wrap.appendChild(tvRow({ depth: 0, twisty: rootClosed ? "closed" : "open", iconHtml: "", label: "node_modules", isRoot: true, onClick: () => { if (rootClosed) collapsed.delete(LIBROOT); else collapsed.add(LIBROOT); renderFiles(); } }));
+    if (!rootClosed) {
+      const renderLib = (node, depth) => {
+        for (const [name, dir] of [...node.dirs.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+          const key = "lib::" + dir.path; const isCol = collapsed.has(key);
+          wrap.appendChild(tvRow({ depth, twisty: isCol ? "closed" : "open", iconHtml: SVG.folder, label: name, onClick: () => { if (isCol) collapsed.delete(key); else collapsed.add(key); renderFiles(); } }));
+          if (!isCol) renderLib(dir, depth + 1);
+        }
+        for (const f of node.files.sort((a, b) => a.name.localeCompare(b.name)))
+          wrap.appendChild(tvRow({ depth, twisty: "", iconHtml: fileIcon(f.name), label: f.name, dim: true, isActive: !!libView && libView.uri === f.uri, onClick: () => openLib(f.uri) }));
+      };
+      renderLib(buildLibTree(), 1);
+    }
   }
 }
 
@@ -833,8 +852,10 @@ require(["vs/editor/editor.main"], async () => {
       const decoded = decodeURIComponent(uri.replace(/^file:\/\/\//, "")).replace(/^node_modules\//, "").replace(/^@types\//, "");
       const name = decoded.split("/").slice(-2).join("/");
       libView = { uri, name };
-      libFiles.set(uri, { uri, name }); // surface it under the Explorer's "Libraries"
+      libFiles.set(uri, { uri, name }); // surface it under the Explorer's node_modules tree
+      revealLibPath(uri);               // expand node_modules + ancestor folders to it
       editor.setModel(m); renderFiles(); renderFtabs();
+      const row = $("files").querySelector(".tv-row.active"); if (row) row.scrollIntoView({ block: "nearest" });
       return m;
     }
     return null;
