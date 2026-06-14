@@ -27,6 +27,8 @@ jobs:
 
   build-host:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create/attach the release on v* tags
     defaults:
       run:
         working-directory: apps/host
