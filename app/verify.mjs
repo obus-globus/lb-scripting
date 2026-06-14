@@ -69,6 +69,21 @@ tabs = await page.evaluate(() => window.__ide.openTabs());
 ok(tabs.length === 2 && !tabs.includes("examples/multi-file/lib/format.ts"), "closing a tab removes it (file kept): " + JSON.stringify(tabs));
 ok((await page.evaluate(() => window.__ide.listFiles())).includes("examples/multi-file/lib/format.ts"), "closed tab's file still exists in the project");
 
+console.log("\n[1d] supporting (aux) files toggle");
+await page.evaluate(() => window.__ide.createProject("inject-ts"));
+const aux = await page.evaluate(() => window.__ide.auxFiles());
+ok(aux.includes("package.json") && aux.some((f) => f.startsWith("vendor/")) && aux.some((f) => f.startsWith("scripts/")), "inject project has aux files (lib + build script + config): " + JSON.stringify(aux));
+await page.evaluate(() => window.__ide.setShowAux(false));
+let labels = await page.evaluate(() => window.__ide.treeLabels());
+ok(!labels.includes("package.json") && !labels.includes("vendor"), "aux files hidden by default (no package.json/vendor in tree)");
+await page.evaluate(() => window.__ide.setShowAux(true));
+labels = await page.evaluate(() => window.__ide.treeLabels());
+ok(labels.includes("package.json") && labels.includes("scripts") && labels.includes("vendor"), "toggle reveals supporting files (package.json, scripts/, vendor/)");
+// aux files must NOT change the build output
+const bAux = await page.evaluate(() => window.__ide.build());
+ok(!!bAux && bAux.code.includes("__nfLibConsumed"), "build still produces the inject bundle (aux files not part of the entry graph)");
+await page.evaluate(() => window.__ide.setShowAux(false));
+
 console.log("\n[2] inject template");
 await page.evaluate(() => window.__ide.createProject("inject-ts"));
 const cur = await page.evaluate(() => window.__ide.current());

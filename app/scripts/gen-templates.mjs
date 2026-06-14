@@ -29,6 +29,32 @@ function readSrcTree(templateDir) {
   return out;
 }
 
+// The supporting (non-src) project files: build script, vendored library,
+// configs, types. Shown in the IDE only when "show supporting files" is on.
+function readAuxTree(templateDir) {
+  const root = path.join(ROOT, templateDir);
+  const want = (rel) =>
+    rel === "package.json" || rel === "tsconfig.json" || rel === "jsconfig.json" ||
+    rel === "README.md" || rel === "lbdev.config.example.json" ||
+    rel.startsWith("scripts/") || rel.startsWith("host-scripts/") ||
+    rel.startsWith("types/") || rel.startsWith("vendor/");
+  const skip = new Set(["node_modules", ".git", "dist", "src"]);
+  const out = {};
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir)) {
+      if (skip.has(entry)) continue;
+      const full = path.join(dir, entry);
+      if (statSync(full).isDirectory()) walk(full);
+      else {
+        const rel = path.relative(root, full).split(path.sep).join("/");
+        if (want(rel)) out[rel] = readFileSync(full, "utf8");
+      }
+    }
+  };
+  walk(root);
+  return out;
+}
+
 const templates = [
   {
     id: "default-ts",
@@ -36,6 +62,7 @@ const templates = [
     description: "Typed script + an examples/ folder (incl. multi-file & inject demos).",
     lang: "ts",
     files: readSrcTree("lb-web-ide/template"),
+    aux: readAuxTree("lb-web-ide/template"),
   },
   {
     id: "plain-js",
@@ -43,6 +70,7 @@ const templates = [
     description: "No build step — // @ts-check'd JS, with an examples/ folder.",
     lang: "js",
     files: readSrcTree("lb-script-template-js"),
+    aux: readAuxTree("lb-script-template-js"),
   },
   {
     id: "starter-ts",
@@ -50,6 +78,7 @@ const templates = [
     description: "JumpLogger starter + examples/ folder.",
     lang: "ts",
     files: readSrcTree("lb-script-starter"),
+    aux: readAuxTree("lb-script-starter"),
   },
   {
     id: "inject-ts",
@@ -58,6 +87,7 @@ const templates = [
     lang: "ts",
     needsInject: true,
     files: readSrcTree("lb-inject-template"),
+    aux: readAuxTree("lb-inject-template"),
   },
 ];
 
@@ -70,5 +100,5 @@ const bundlePath = "lb-inject/dist/nf-inject-bundled-1.1.0.js";
 if (!existsSync(path.join(ROOT, bundlePath))) throw new Error("missing " + bundlePath);
 writeFileSync(path.join(app, "public/lb-inject-bundled.js"), read(bundlePath));
 
-console.log("templates.json:", templates.map((t) => `${t.id}(${Object.keys(t.files).length}f)`).join(", "));
+console.log("templates.json:", templates.map((t) => `${t.id}(${Object.keys(t.files).length}f+${Object.keys(t.aux || {}).length}aux)`).join(", "));
 console.log("+ lb-inject.d.ts, lb-inject-bundled.js");

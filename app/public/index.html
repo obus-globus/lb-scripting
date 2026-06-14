@@ -48,6 +48,8 @@
     #sideHead button { font:inherit; background:transparent; color:#c5c5c5; border:0; border-radius:5px; width:22px; height:22px; padding:0; cursor:pointer; display:flex; align-items:center; justify-content:center; }
     #sideHead button:hover { background:#ffffff1a; }
     #sideHead button svg { width:16px; height:16px; }
+    #sideHead button.on { background:#0e639c; color:#fff; }
+    #sideHead button.on:hover { background:#1177bb; }
     /* VS Code-style tree rows */
     .tv-row { display:flex; align-items:center; height:22px; padding-right:6px; cursor:pointer; color:#cccccc; white-space:nowrap; user-select:none; }
     .tv-row:hover { background:#2a2d2e; }
@@ -60,6 +62,8 @@
     .tv-row .ic { width:16px; height:16px; flex:none; margin-right:5px; display:flex; align-items:center; justify-content:center; }
     .tv-row .ic svg { width:16px; height:16px; }
     .tv-row .nm { overflow:hidden; text-overflow:ellipsis; }
+    .tv-row.dim .nm { opacity:.55; }
+    .tv-row.dim .ic { opacity:.6; }
     .tv-row.root .nm { text-transform:uppercase; font-size:11px; letter-spacing:.5px; color:#bbb; font-weight:600; }
     .tv-row .acts { margin-left:auto; display:flex; gap:1px; opacity:0; padding-left:6px; }
     .tv-row:hover .acts { opacity:1; }
@@ -96,6 +100,9 @@
             </button>
             <button id="addFolder" title="New Folder">
               <svg viewBox="0 0 16 16"><path fill="currentColor" d="M14.5 4H8.7L7.5 2.6 7.1 2.5H1.5l-.5.5v10l.5.5h13l.5-.5V4.5l-.5-.5zM14 13H2V3.5h4.8l1.2 1.4.4.1H14V13zm-3.5-5H9V6.5H8V8H6.5v1H8v1.5h1V9h1.5V8z"/></svg>
+            </button>
+            <button id="toggleAux" title="Show supporting files (build script, lib, configs)">
+              <svg viewBox="0 0 16 16"><path fill="currentColor" d="M8 3C4.5 3 1.7 5.1.5 8c1.2 2.9 4 5 7.5 5s6.3-2.1 7.5-5C14.3 5.1 11.5 3 8 3zm0 8.3A3.3 3.3 0 1 1 8 4.7a3.3 3.3 0 0 1 0 6.6zM8 6.2a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6z"/></svg>
             </button>
             <button id="collapseAll" title="Collapse Folders">
               <svg viewBox="0 0 16 16"><path fill="currentColor" d="M9 9H4V8h5v1zm0-3H4V5h5v1zM3 2.5l.5-.5h9l.5.5v3h-1V3H3.5L3 2.5zm10 11l-.5.5h-9l-.5-.5v-3h1V13h9.5l-.5.5zM4 11h5v-1H4v1z"/></svg>

@@ -26,6 +26,9 @@ orchestration / Kubernetes / licensing baggage of the server-side options — se
     default-ts · plain-js · starter-ts · inject-ts (lb-inject)
 ✓ multi-file projects with a collapsible FOLDER TREE (create/delete files +
     folders at any depth); cross-folder ./imports resolve & inline in the build
+✓ "show supporting files" toggle (eye icon) — reveals the template's build
+    script, vendored lib (lb-inject), configs & types (dimmed, hidden by
+    default; not part of the entry build graph)
 ✓ live type-checking + autocomplete (TS and // @ts-check JS), moduleDetection
     forced so the many files don't collide in global scope
 ✓ build → self-contained .mjs, matching the template build conventions:
