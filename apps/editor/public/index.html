@@ -20,7 +20,7 @@
     html.translucent #side, html.translucent #sideHead { background-color: rgba(var(--glassrgb), var(--a, .85)) !important; }
     html.translucent .monaco-editor, html.translucent .monaco-editor-background,
     html.translucent .monaco-editor .margin { background:transparent !important; }
-    #app { display:grid; grid-template-rows:auto auto auto 1fr auto auto; height:100%; }
+    #app { display:grid; grid-template-rows:auto auto auto 1fr auto; height:100%; }
     #bar { display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg2); border-bottom:1px solid var(--border); font-size:13px; }
     #bar .spacer { flex:1; }
     /* VS Code-style slim bottom status bar */
@@ -79,7 +79,13 @@
     #pop label.item { user-select:none; }
     #pop label.item input { accent-color:var(--acc); }
     #pop .sep { height:1px; background:#ffffff18; margin:4px 6px; }
-    #mid { display:grid; grid-template-columns:200px 1fr; min-height:0; }
+    #mid { display:grid; grid-template-columns:var(--sideW,220px) 5px 1fr; min-height:0; }
+    /* right pane: editor on top, the output/log below (so the Explorer owns the
+       full left height, VS Code-style); both halves resizable via the splitters */
+    #rightpane { display:grid; grid-template-rows:1fr 5px var(--logH,150px); min-width:0; min-height:0; }
+    .vsplit { cursor:col-resize; background:transparent; }
+    .hsplit { cursor:row-resize; background:transparent; }
+    .vsplit:hover, .vsplit.dragging, .hsplit:hover, .hsplit.dragging { background:var(--acc); }
     /* drag-and-drop import affordance */
     .dropping { outline:2px dashed var(--acc); outline-offset:-3px; background:var(--acc2) !important; background:#4677ff14 !important; }
     #side { background:var(--bg2); border-right:1px solid var(--border); overflow:auto; font-size:13px; }
@@ -112,7 +118,7 @@
     .tv-row .acts .b:hover { background:#ffffff1f; }
     .tv-row .acts .b svg { width:15px; height:15px; }
     #editor { min-width:0; }
-    #log { height:150px; background:var(--bg); border-top:1px solid var(--border); overflow:auto; padding:8px 10px; font-size:12px; white-space:pre-wrap; }
+    #log { background:var(--bg); border-top:1px solid var(--border); overflow:auto; padding:8px 10px; font-size:12px; white-space:pre-wrap; min-height:0; }
     #log .e { color:var(--err); }
     #log .s { color:var(--ok); }
     #log .d { color:var(--fgdim); }
@@ -173,9 +179,13 @@
         </div>
         <div id="files"></div>
       </div>
-      <div id="editor"></div>
+      <div id="resizeSide" class="vsplit" title="drag to resize"></div>
+      <div id="rightpane">
+        <div id="editor"></div>
+        <div id="resizeLog" class="hsplit" title="drag to resize"></div>
+        <div id="log"></div>
+      </div>
     </div>
-    <div id="log"></div>
     <div id="statusbar">
       <span id="status">booting…</span>
       <span id="sbBridge" class="sb-item" style="display:none">in-client</span>

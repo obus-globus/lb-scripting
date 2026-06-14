@@ -949,6 +949,18 @@ require(["vs/editor/editor.main"], async () => {
   $("importFiles").onclick = () => { const inp = $("fileInput"); inp.value = ""; inp.onchange = () => importFiles(inp.files); inp.click(); };
   for (const id of ["editor", "side"]) { const el = $(id); el.addEventListener("dragover", (e) => { e.preventDefault(); el.classList.add("dropping"); }); el.addEventListener("dragleave", (e) => { if (e.target === el) el.classList.remove("dropping"); }); el.addEventListener("drop", (e) => { e.preventDefault(); el.classList.remove("dropping"); if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) importFiles(e.dataTransfer.files); }); }
 
+  // resizable panels (sidebar width + output/log height), VS Code-style, persisted
+  try { const sw = localStorage.getItem("lb-ide:sideW"); if (sw) document.documentElement.style.setProperty("--sideW", sw + "px"); const lh = localStorage.getItem("lb-ide:logH"); if (lh) document.documentElement.style.setProperty("--logH", lh + "px"); } catch { /* */ }
+  const relayout = () => { try { editor.layout(); } catch { /* */ } };
+  const dragSplit = (handle, onMove) => handle.addEventListener("mousedown", (e) => {
+    e.preventDefault(); handle.classList.add("dragging"); document.body.style.userSelect = "none";
+    const mv = (ev) => { onMove(ev); relayout(); };
+    const up = () => { handle.classList.remove("dragging"); document.body.style.userSelect = ""; document.removeEventListener("mousemove", mv); document.removeEventListener("mouseup", up); relayout(); };
+    document.addEventListener("mousemove", mv); document.addEventListener("mouseup", up);
+  });
+  dragSplit($("resizeSide"), (ev) => { const r = $("mid").getBoundingClientRect(); let w = Math.round(ev.clientX - r.left); w = Math.max(140, Math.min(w, r.width - 240)); document.documentElement.style.setProperty("--sideW", w + "px"); try { localStorage.setItem("lb-ide:sideW", String(w)); } catch { /* */ } });
+  dragSplit($("resizeLog"), (ev) => { const r = $("rightpane").getBoundingClientRect(); let h = Math.round(r.bottom - ev.clientY); h = Math.max(0, Math.min(h, r.height - 120)); document.documentElement.style.setProperty("--logH", h + "px"); try { localStorage.setItem("lb-ide:logH", String(h)); } catch { /* */ } });
+
   // Host-bridge mode: when served by the in-client server (lb-ide-host), an
   // /api/ping responds — then offer "build & run in client" (loads the built
   // .mjs straight into LiquidBounce). On the plain web deploy this 404s and the
