@@ -48,6 +48,8 @@ let hotReloadFn = null, hotTimer = null;
 const models = new Map();                 // path -> monaco model (current project only)
 let editor = null, saveTimer = null;
 let libView = null;                        // {uri,name} when viewing a read-only library/decl file
+const libFiles = new Map();                // uri -> {uri,name} declaration files shown under "Libraries"
+let openLib = () => {};                     // (uri) => open a library file read-only (wired in init)
 const builds = new Map();                  // projId -> { name, code } last build (per project)
 const currentBuild = () => (proj ? builds.get(proj.id) : null);
 function syncDownloadBtn() { const dl = $("download"); if (dl) dl.disabled = !currentBuild(); }
@@ -253,6 +255,7 @@ const SVG = {
   addFile: '<svg viewBox="0 0 16 16"><path fill="currentColor" d="M9.5 1.1l3.4 3.4.1.4v9.6l-.5.5h-9l-.5-.5v-13l.5-.5h5.1l.4.1zM9 2H4v12h8V5H9.5L9 4.5V2zM8 7H7v2H5v1h2v2h1v-2h2V9H8V7z"/></svg>',
   addFolder: '<svg viewBox="0 0 16 16"><path fill="currentColor" d="M14.5 4H8.7L7.5 2.6 7.1 2.5H1.5l-.5.5v10l.5.5h13l.5-.5V4.5l-.5-.5zM14 13H2V3.5h4.8l1.2 1.4.4.1H14V13zm-3.5-5H9V6.5H8V8H6.5v1H8v1.5h1V9h1.5V8z"/></svg>',
   trash: '<svg viewBox="0 0 16 16"><path fill="currentColor" d="M10 3h3v1h-1v9.5l-.5.5h-7l-.5-.5V4H3V3h3V2l.5-.5h3l.5.5V3zM5 4v9h6V4H5zm2 1h1v7H7V5zm2 0h1v7H9V5z"/></svg>',
+  lib: '<svg viewBox="0 0 16 16"><path fill="#9aa0a6" d="M3 2h3.5l.5.5V13H3.5l-.5-.5v-10zm4.5 0H11l.5.5v10l-.5.5H8V2.5zM12 3.2l1.4.4.3.5-2 9-.4.3-1-.3.3-1.4z"/></svg>',
 };
 function fileIcon(name) {
   const ext = name.slice(name.lastIndexOf(".") + 1);
@@ -318,6 +321,18 @@ function renderFiles() {
     }
   };
   render(buildTree(filter), 1);
+
+  // Libraries — read-only declaration files (.d.ts) you've navigated into via
+  // Go to Definition (lb-inject, @wunk types, …). Lets you browse/re-open them.
+  if (libFiles.size) {
+    const LIBS = "__LIBS__"; const libsClosed = collapsed.has(LIBS);
+    wrap.appendChild(tvRow({
+      depth: 0, twisty: libsClosed ? "closed" : "open", iconHtml: "", label: "Libraries", isRoot: true,
+      onClick: () => { if (libsClosed) collapsed.delete(LIBS); else collapsed.add(LIBS); renderFiles(); },
+    }));
+    if (!libsClosed) for (const lf of [...libFiles.values()].sort((a, b) => a.name.localeCompare(b.name)))
+      wrap.appendChild(tvRow({ depth: 1, twisty: "", iconHtml: SVG.lib, label: lf.name, dim: true, isActive: !!libView && libView.uri === lf.uri, onClick: () => openLib(lf.uri) }));
+  }
 }
 
 // ---------------------------------------------------------------- projects
@@ -816,7 +831,9 @@ require(["vs/editor/editor.main"], async () => {
       // a library / unlisted file: read-only, surfaced as a transient locked tab,
       // and the Explorer selection is cleared (it isn't a project file)
       const decoded = decodeURIComponent(uri.replace(/^file:\/\/\//, "")).replace(/^node_modules\//, "").replace(/^@types\//, "");
-      libView = { uri, name: decoded.split("/").slice(-2).join("/") };
+      const name = decoded.split("/").slice(-2).join("/");
+      libView = { uri, name };
+      libFiles.set(uri, { uri, name }); // surface it under the Explorer's "Libraries"
       editor.setModel(m); renderFiles(); renderFtabs();
       return m;
     }
@@ -846,6 +863,11 @@ require(["vs/editor/editor.main"], async () => {
       if (tm) revealSpan(tm, span.start, span.length);
     } catch { /* */ }
   }
+  // let the Explorer's "Libraries" rows re-open a declaration file read-only
+  openLib = (uri) => { const m = openTarget(monaco.Uri.parse(uri)); if (!m && libFiles.has(uri)) { libFiles.delete(uri); renderFiles(); } };
+  // pre-seed Libraries with the always-available module declarations (lb-inject,
+  // the live-REPL log()), so they're browsable without navigating first
+  for (const l of baseExtraLibs) { if (!/@types\/(lb-inject|lb-repl)\//.test(l.filePath)) continue; const u = monaco.Uri.parse(l.filePath).toString(); const name = l.filePath.replace(/^file:\/\/\//, "").replace(/^node_modules\//, "").replace(/^@types\//, "").split("/").slice(-2).join("/"); libFiles.set(u, { uri: u, name }); }
   editor.addCommand(monaco.KeyCode.F12, () => gotoDefinition(editor.getModel(), editor.getPosition()));
   editor.onMouseDown((e) => {
     const oe = e.event;
