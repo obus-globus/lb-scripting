@@ -88,6 +88,34 @@ faithful-but-not-exhaustive replication of the demo cannot boot the extension
 host. Crux 1 (tsserver + 12 MB typings) remains UNREACHED; the blocker is
 ext-host boot, upstream of typings.
 
+## Round 4 — register the TS extension + workbench-opens-editor (per Koda)
+The recurring gap was "did you actually register an extension." Now done:
+- Imported the official default-extension packages' **`whenReady`** and **awaited
+  it** — `whenReady()` **resolves** (`tsReady:"ready"`), proving the TS extension
+  IS registered. (`extensions.all` being 0 on the main thread is expected — the
+  ext runs in the worker host, not the main registry; `whenReady` is the real
+  signal.)
+- Added `getWorkbenchServiceOverride()`, a real container, `envOptions{userHome}`,
+  and `constructOptions.defaultLayout.editors` so the **workbench opens the file**
+  (the demo's activation path) rather than my manual `showTextDocument`.
+- Run under **`vite preview`** (supported serving).
+
+**Result: still no ext-host iframe request, no `tsserver.web.js`, no diagnostics**
+— with the TS extension registered+ready, the worker editor open via the
+workbench, ~52 overrides, 7 workers, container, envOptions, COI true.
+
+So: with the TS extension genuinely registered (Koda's named criterion met), the
+worker extension host **still does not boot** under supported serving. Per the
+agreed criterion ("if that doesn't boot the ext host, it's a genuine hold"), this
+is the genuine-hold signal.
+
+**Honest caveat (the pattern):** each prior round, the "blocker" turned out to be
+a missing standard piece, so I'm not calling this *impossible*. **One known demo
+piece remains un-replicated:** `userDataProvider = await createIndexedDBProviders()`
+(passed via constructOptions) — the ext host may persist/boot through it. I ran out
+of context budget before wiring it. A fresh session should try exactly that next,
+then (if the iframe loads) go straight to the 12 MB typings test.
+
 ## Unresolved — the crux
 - **`tsserver` never activated.** `tsserver.web.js` was never requested across:
   minimal (8) and fuller (16) service overrides; with and without a registered

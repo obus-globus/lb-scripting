@@ -56,8 +56,8 @@ import getViewsServiceOverride from "@codingame/monaco-vscode-views-service-over
 import getQuickAccessServiceOverride from "@codingame/monaco-vscode-quickaccess-service-override";
 import getWorkbenchServiceOverride from "@codingame/monaco-vscode-workbench-service-override";
 // extensions
-import "@codingame/monaco-vscode-typescript-language-features-default-extension";
-import "@codingame/monaco-vscode-typescript-basics-default-extension";
+import { whenReady as tsLangReady } from "@codingame/monaco-vscode-typescript-language-features-default-extension";
+import { whenReady as tsBasicsReady } from "@codingame/monaco-vscode-typescript-basics-default-extension";
 import "@codingame/monaco-vscode-theme-defaults-default-extension";
 import "vscode/localExtensionHost";
 // workers (?worker&url → URL string; works in the ext-host iframe context)
@@ -161,8 +161,14 @@ const workerUrls: Record<string, string> = {
       ...getWorkbenchServiceOverride(),
     }, container, {
       workspaceProvider: { trusted: true, workspace: { folderUri: wsUri }, async open() { return false; } },
+      // let the workbench open the editor (the demo's activation path)
+      defaultLayout: { editors: [{ uri, viewColumn: 1 }], force: true },
     } as any, { userHome: monaco.Uri.file("/") } as any);
     S.ready = true;
+
+    // await the default-extension registration (the recurring missing piece)
+    const to = (ms: number) => new Promise((r) => setTimeout(() => r("timeout"), ms));
+    S.tsReady = await Promise.race([Promise.all([tsBasicsReady(), tsLangReady()]).then(() => "ready"), to(40000)]);
 
     // open the document THROUGH the vscode API so onLanguage:typescript activation fires
     const doc = await vscode.workspace.openTextDocument(uri);
