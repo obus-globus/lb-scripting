@@ -339,12 +339,12 @@ function renderFiles() {
   };
   render(buildTree(filter), 1);
 
-  // node_modules — read-only declaration files (.d.ts) for the libraries (lb-inject,
-  // @wunk types, …), shown as a real nested folder tree like VS Code. Collapsed by
-  // default; Go to Definition expands the path to the file it opened.
+  // Type Libraries — read-only declaration files (.d.ts) for the LB script API
+  // types (@wunk) + lb-inject, shown as a real nested folder tree like VS Code's
+  // node_modules. Collapsed by default; Go to Definition expands to the file.
   if (libFiles.size) {
     const rootOpen = expandedLibs.has(LIBROOT);
-    wrap.appendChild(tvRow({ depth: 0, twisty: rootOpen ? "open" : "closed", iconHtml: "", label: "node_modules", isRoot: true, onClick: () => { if (rootOpen) expandedLibs.delete(LIBROOT); else expandedLibs.add(LIBROOT); renderFiles(); } }));
+    wrap.appendChild(tvRow({ depth: 0, twisty: rootOpen ? "open" : "closed", iconHtml: "", label: "Type Libraries", isRoot: true, onClick: () => { if (rootOpen) expandedLibs.delete(LIBROOT); else expandedLibs.add(LIBROOT); renderFiles(); } }));
     if (rootOpen) {
       const renderLib = (node, depth) => {
         for (const [name, dir] of [...node.dirs.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
