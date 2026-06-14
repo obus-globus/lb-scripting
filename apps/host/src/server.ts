@@ -89,18 +89,32 @@ function writeText(outs: { write(b: unknown): void; flush(): void }, code: numbe
 }
 
 /** Run fn on the MC thread and block (UnsafeThread handler) for its result,
- *  with a timeout so a stalled MC thread can't hang/leak the handler thread. */
+ *  with a timeout so a stalled MC thread can't hang/leak the handler thread.
+ *  On timeout we atomically *claim* the work so the queued MC-thread task no-ops
+ *  if it hasn't started yet — that keeps the reported "timeout" failure truthful
+ *  (no orphaned load that the editor was told had failed). If the task is already
+ *  mid-run when we time out, we grant a short grace for its real result. */
 function runOnMain<R>(fn: () => R, fallback: R): R {
   try {
     const Latch = Topt("java.util.concurrent.CountDownLatch");
     const TimeUnit = Topt("java.util.concurrent.TimeUnit");
+    const AtomicBoolean = Topt("java.util.concurrent.atomic.AtomicBoolean");
     const m = mc as unknown as { execute?(r: () => void): void };
-    if (!Latch || !TimeUnit || typeof m.execute !== "function") { return fn(); } // sim/no-exec: run inline
+    if (!Latch || !TimeUnit || !AtomicBoolean || typeof m.execute !== "function") { return fn(); } // sim/no-exec: run inline
     const latch = new (Latch as unknown as new (n: number) => { countDown(): void; await(t: number, u: unknown): boolean })(1);
+    const claimed = new (AtomicBoolean as unknown as new (b: boolean) => { compareAndSet(a: boolean, b: boolean): boolean })(false);
+    const SECONDS = (TimeUnit as unknown as { SECONDS: unknown }).SECONDS;
     let out: R = fallback;
-    m.execute(() => { try { out = fn(); } catch { /* */ } finally { latch.countDown(); } });
-    const done = latch.await(15, (TimeUnit as unknown as { SECONDS: unknown }).SECONDS);
-    return done ? out : fallback;
+    m.execute(() => {
+      // skip the side-effecting work if the waiter already gave up (timed out)
+      if (!claimed.compareAndSet(false, true)) return;
+      try { out = fn(); } catch { /* */ } finally { latch.countDown(); }
+    });
+    if (latch.await(15, SECONDS)) return out;
+    // timed out: cancel before the MC task runs so fallback stays truthful…
+    if (claimed.compareAndSet(false, true)) return fallback;
+    // …else the task is already running — brief grace for its real result
+    try { return latch.await(5, SECONDS) ? out : fallback; } catch { return fallback; }
   } catch { return fallback; }
 }
 

@@ -1,13 +1,13 @@
 {
   "name": "lb-ide-app",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Browser-only LB script IDE MVP: Monaco type-checking + esbuild-wasm build, per-session IndexedDB persistence, zero backend.",
   "type": "module",
   "scripts": {
     "gen-typings": "node scripts/gen-typings.mjs",
     "gen-templates": "node scripts/gen-templates.mjs",
-    "postinstall": "node scripts/gen-typings.mjs && node scripts/gen-templates.mjs && node scripts/link-public.mjs",
+    "postinstall": "node scripts/gen-typings.mjs && node scripts/gen-templates.mjs && node scripts/gen-version.mjs && node scripts/link-public.mjs",
     "build-dist": "node scripts/build-dist.mjs",
     "serve": "node serve.mjs",
     "verify": "node verify.mjs"

@@ -53,6 +53,44 @@ function log(msg, cls) { const el = $("log"); const line = document.createElemen
 const setStatus = (s) => ($("status").textContent = s);
 const uid = () => "p-" + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
 
+// ---------------------------------------------------------------- version
+// Show the IDE version (from public/version.js) and, best-effort, check GitHub
+// for a newer release. Fully non-blocking: fire-and-forget, 3s timeout, any
+// failure (offline, rate-limited, in-client with no network) is silently ignored.
+const IDE = (typeof window !== "undefined" && window.__IDE__) || {};
+function cmpVer(a, b) {
+  const pa = String(a).split("."), pb = String(b).split(".");
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (parseInt(pa[i], 10) || 0) - (parseInt(pb[i], 10) || 0);
+    if (d) return d < 0 ? -1 : 1;
+  }
+  return 0;
+}
+async function checkVersion() {
+  const el = $("ver");
+  const cur = IDE.version || "";
+  if (el) el.textContent = cur ? "v" + cur : "";
+  if (!el || !cur || !IDE.repo) return;
+  let ctrl = null, timer = null;
+  try {
+    ctrl = new AbortController();
+    timer = setTimeout(() => ctrl.abort(), 3000);
+    const r = await fetch("https://api.github.com/repos/" + IDE.repo + "/releases/latest", { headers: { Accept: "application/vnd.github+json" }, signal: ctrl.signal });
+    if (!r.ok) return;
+    const rel = await r.json();
+    const tag = String(rel.tag_name || "").replace(/^v/, "");
+    if (tag && cmpVer(tag, cur) > 0) {
+      el.textContent = "v" + cur + " · ";
+      const a = document.createElement("a");
+      a.href = rel.html_url || ("https://github.com/" + IDE.repo + "/releases"); a.target = "_blank"; a.rel = "noopener noreferrer";
+      a.textContent = "update → v" + tag;
+      el.title = "A newer release (" + (rel.tag_name || tag) + ") is available on GitHub";
+      el.appendChild(a);
+    }
+  } catch { /* offline / aborted / rate-limited — ignore */ }
+  finally { if (timer) clearTimeout(timer); }
+}
+
 // ---------------------------------------------------------------- monaco cfg
 function configureTS(defaults, isJs) {
   const t = monaco.languages.typescript;
@@ -681,6 +719,7 @@ require(["vs/editor/editor.main"], async () => {
 
   setStatus("ready");
   log("ready — " + meta.ids.length + " project(s), " + CATEGORIES.length + " templates", "d");
+  checkVersion(); // non-blocking, best-effort GitHub release check (3s timeout)
 
   window.__ide = {
     ready: true,

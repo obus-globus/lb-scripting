@@ -23,6 +23,9 @@
     #app { display:grid; grid-template-rows:auto auto auto 1fr auto; height:100%; }
     #bar { display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg2); border-bottom:1px solid var(--border); font-size:13px; }
     #bar .spacer { flex:1; }
+    #ver { font-size:11px; color:var(--fgdim); margin-left:-2px; }
+    #ver a { color:var(--ok); text-decoration:none; }
+    #ver a:hover { text-decoration:underline; }
     #bar button { font:inherit; background:var(--acc); color:#fff; border:0; border-radius:4px; padding:5px 10px; cursor:pointer; }
     #bar button:hover { background:var(--acc2); }
     #bar button.ghost { background:var(--bg3); color:var(--fg); }
@@ -110,6 +113,7 @@
   <div id="app">
     <div id="bar">
       <strong>LB Script IDE</strong>
+      <span id="ver" title="IDE version"></span>
       <select id="themeSel" title="editor theme"></select>
       <span class="spacer"></span>
       <span id="status">booting…</span>
@@ -162,6 +166,7 @@
     <div id="replEditor"></div>
     <div id="replOut"></div>
   </div>
+  <script src="version.js"></script>
   <script src="vs/loader.js"></script>
   <script src="esbuild.js"></script>
   <script src="main.js"></script>

@@ -66,7 +66,7 @@ the script runs live, no game restart.
 ## 3. Key decisions
 
 ### 3a. Which editor edition — **esbuild-wasm, NOT WebContainers**
-- The esbuild-wasm app (`app/`) builds entirely client-side with **no COOP/COEP,
+- The esbuild-wasm editor (`apps/editor/`) builds entirely client-side with **no COOP/COEP,
   no secure-context, no external network** (verified). That fits CEF perfectly.
 - The WebContainers app needs cross-origin isolation + a secure context + the
   StackBlitz proxy → unsuitable for the CEF/localhost context. Do **not** use it.

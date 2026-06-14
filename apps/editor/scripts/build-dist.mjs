@@ -18,12 +18,16 @@ if (!existsSync(path.join(app, "public/templates.json"))) {
   console.log("templates.json missing — generating…");
   execSync("node scripts/gen-templates.mjs", { cwd: app, stdio: "inherit" });
 }
+if (!existsSync(path.join(app, "public/version.js"))) {
+  console.log("version.js missing — generating…");
+  execSync("node scripts/gen-version.mjs", { cwd: app, stdio: "inherit" });
+}
 
 rmSync(dist, { recursive: true, force: true });
 mkdirSync(dist, { recursive: true });
 
 // real page assets (resolve the symlinks in public/ to their real targets)
-for (const f of ["index.html", "main.js", "typings-bundle.json", "templates.json", "lb-inject.d.ts", "lb-inject-bundled.js"])
+for (const f of ["index.html", "main.js", "version.js", "typings-bundle.json", "templates.json", "lb-inject.d.ts", "lb-inject-bundled.js"])
   cpSync(path.join(app, "public", f), path.join(dist, f));
 
 // monaco + esbuild-wasm runtime, copied as real files

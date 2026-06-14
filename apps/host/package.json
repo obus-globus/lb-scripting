@@ -1,6 +1,6 @@
 {
   "name": "lb-ide-host",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "LiquidBounce script that opens the LB Script IDE in-game (CEF) and loads built scripts into the client.",
