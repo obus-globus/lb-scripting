@@ -33,7 +33,10 @@
     #tmplMenu .item:hover span { color:#dde; }
     #mid { display:grid; grid-template-columns:200px 1fr; min-height:0; }
     #side { background:var(--bg2); border-right:1px solid #111; overflow:auto; }
-    #side h4 { margin:0; padding:8px 10px; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:#888; }
+    #sideHead { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:7px 8px 7px 10px; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:#888; position:sticky; top:0; background:var(--bg2); }
+    #sideHead .sideActs { display:flex; gap:4px; }
+    #sideHead button { font:inherit; font-size:11px; text-transform:none; letter-spacing:0; background:#3a3a3a; color:#ddd; border:0; border-radius:4px; padding:3px 7px; cursor:pointer; }
+    #sideHead button:hover { background:var(--acc2); color:#fff; }
     .file { padding:4px 8px; font-size:13px; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:6px; }
     .file:hover { background:var(--bg3); }
     .file.active { background:var(--acc); color:#fff; }
@@ -59,15 +62,22 @@
       <strong>LB Script IDE</strong>
       <span class="spacer"></span>
       <span id="status">booting…</span>
-      <button id="addFile" class="ghost">+ file</button>
-      <button id="addFolder" class="ghost">+ folder</button>
       <button id="rename" class="ghost">rename</button>
       <button id="build">build</button>
       <button id="download" class="ghost" disabled>download .mjs</button>
     </div>
     <div id="tabs"></div>
     <div id="mid">
-      <div id="side"><h4>Files</h4><div id="files"></div></div>
+      <div id="side">
+        <div id="sideHead">
+          <span>Files</span>
+          <span class="sideActs">
+            <button id="addFile" title="New file">＋ file</button>
+            <button id="addFolder" title="New folder">＋ folder</button>
+          </span>
+        </div>
+        <div id="files"></div>
+      </div>
       <div id="editor"></div>
     </div>
     <div id="log"></div>
