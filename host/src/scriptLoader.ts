@@ -118,17 +118,31 @@ export function listScripts(): string[] {
 }
 
 /** Evaluate a REPL snippet in the script's global context (has mc/Client/etc.).
- *  Indirect eval runs in global scope. Must be called on the MC thread. */
-export function replEval(code: string): { ok: boolean; result?: string; error?: string } {
+ *  Indirect eval runs in global scope. Captures synchronous print(...) and
+ *  console.* output alongside the last-expression value. Must run on MC thread. */
+export function replEval(code: string): { ok: boolean; result?: string; output?: string; error?: string } {
+  const logs: string[] = [];
+  const fmt = (args: unknown[]): string => args.map((a) => { if (typeof a === "string") return a; try { const s = JSON.stringify(a); return s === undefined ? String(a) : s; } catch { return String(a); } }).join(" ");
+  const g = globalThis as unknown as { print?: unknown; console?: unknown };
+  const origPrint = g.print, origConsole = g.console;
   try {
+    try { g.print = (...args: unknown[]): void => { logs.push(fmt(args)); }; } catch { /* print may be read-only */ }
+    try {
+      const mk: Record<string, (...a: unknown[]) => void> = {};
+      for (const k of ["log", "info", "warn", "error", "debug"]) mk[k] = (...a: unknown[]): void => { logs.push((k === "log" ? "" : "[" + k + "] ") + fmt(a)); };
+      g.console = mk;
+    } catch { /* */ }
     const indirect = eval; // indirect eval → global scope (ambient LB globals visible)
     const r = (indirect as (s: string) => unknown)(code);
     let out: string;
     if (r === undefined) out = "undefined";
     else { try { out = JSON.stringify(r); } catch { out = String(r); } if (out === undefined) out = String(r); }
-    return { ok: true, result: out };
+    return { ok: true, result: out, output: logs.join("\n") };
   } catch (e) {
-    return { ok: false, error: String((e as { message?: string })?.message ?? e) };
+    return { ok: false, error: String((e as { message?: string })?.message ?? e), output: logs.join("\n") };
+  } finally {
+    try { g.print = origPrint; } catch { /* */ }
+    try { g.console = origConsole; } catch { /* */ }
   }
 }
 

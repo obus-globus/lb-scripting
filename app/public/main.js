@@ -528,7 +528,8 @@ require(["vs/editor/editor.main"], async () => {
     appendRepl("› " + code.replace(/\s*\n\s*/g, " ⏎ "), "in");
     try {
       const res = await fetch(BASE + "api/repl", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) }).then((r) => r.json());
-      appendRepl(res.ok ? String(res.result) : "✗ " + (res.error || "?"), res.ok ? "ok" : "err");
+      if (res.output) appendRepl(res.output, "log");
+      appendRepl(res.ok ? "⇐ " + String(res.result) : "✗ " + (res.error || "?"), res.ok ? "ok" : "err");
     } catch (e) { appendRepl("✗ " + (e && e.message || e), "err"); }
   }
   function ensureRepl() {
