@@ -1,12 +1,10 @@
 // LB Script IDE — browser-only: Monaco type-checking against
-// @wunk/lb-script-api-types + esbuild-wasm build → downloadable .mjs, with
-// per-session IndexedDB persistence. No backend; each session is isolated.
+// @wunk/lb-script-api-types + esbuild-wasm build → downloadable .mjs.
+// Multiple projects (tab bar), each seeded from a real LB template and persisted
+// independently in IndexedDB. Build matches the template conventions:
+// JVM-type value imports → Java.type(...), and `lb-inject` → its inlined runtime.
 
-// Absolute base of this app (so it works under a subpath like /lb-ide/ behind a
-// reverse proxy, not just at the origin root). Ends in a trailing slash.
 const BASE = new URL(".", document.baseURI).href;
-
-// ---- Monaco AMD workers need an absolute baseUrl under a plain script tag ----
 self.MonacoEnvironment = {
   getWorkerUrl: () =>
     "data:text/javascript;charset=utf-8," +
@@ -17,326 +15,249 @@ self.MonacoEnvironment = {
 require.config({ paths: { vs: BASE + "vs" } });
 
 // ---------------------------------------------------------------- persistence
-const DB = "lb-ide";
-const STORE = "sessions";
+const DB = "lb-ide", P_STORE = "projects", M_STORE = "meta";
 function idb() {
   return new Promise((res, rej) => {
-    const r = indexedDB.open(DB, 1);
-    r.onupgradeneeded = () => r.result.createObjectStore(STORE);
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
+    const r = indexedDB.open(DB, 2);
+    r.onupgradeneeded = () => { const db = r.result; if (!db.objectStoreNames.contains(P_STORE)) db.createObjectStore(P_STORE); if (!db.objectStoreNames.contains(M_STORE)) db.createObjectStore(M_STORE); };
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
   });
 }
-async function dbGet(key) {
-  const db = await idb();
-  return new Promise((res, rej) => {
-    const t = db.transaction(STORE, "readonly").objectStore(STORE).get(key);
-    t.onsuccess = () => res(t.result || null);
-    t.onerror = () => rej(t.error);
-  });
-}
-async function dbPut(key, val) {
-  const db = await idb();
-  return new Promise((res, rej) => {
-    const t = db.transaction(STORE, "readwrite").objectStore(STORE).put(val, key);
-    t.onsuccess = () => res();
-    t.onerror = () => rej(t.error);
-  });
-}
-
-// ---------------------------------------------------------------- session id
-function sessionId() {
-  let id = location.hash.replace(/^#/, "");
-  if (!id) {
-    id = "s-" + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
-    location.hash = id;
-  }
-  return id;
-}
-
-// ---------------------------------------------------------------- default proj
-const DEFAULT_PROJECT = {
-  active: "main.ts",
-  files: {
-    "main.ts": `/// <reference types="@wunk/lb-script-api-types/ambient" />
-import { fmt } from "./util";
-
-const script = registerScript({ name: "MyScript", version: "0.1.0", authors: ["you"] });
-const VERBOSE = Setting.boolean({ name: "verbose", default: false });
-
-script.registerModule({ name: "MyScript", category: "Misc" }, (mod) => {
-  mod.on("playerJump", () => {
-    const p = mc.player;
-    if (p === null) return;
-    Client.displayChatMessage(fmt(p.position()));
-    if (VERBOSE.get()) Client.displayChatMessage("jumped");
-  });
-});
-`,
-    "util.ts": `/// <reference types="@wunk/lb-script-api-types/ambient" />
-import { Vec3 } from "@wunk/lb-script-api-types/types/net/minecraft/world/phys/Vec3";
-
-export function fmt(v: Vec3): string {
-  return \`x=\${v.x.toFixed(1)} y=\${v.y.toFixed(1)} z=\${v.z.toFixed(1)}\`;
-}
-`,
-  },
-};
+async function dbGet(store, key) { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction(store, "readonly").objectStore(store).get(key); t.onsuccess = () => res(t.result || null); t.onerror = () => rej(t.error); }); }
+async function dbPut(store, key, val) { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction(store, "readwrite").objectStore(store).put(val, key); t.onsuccess = () => res(); t.onerror = () => rej(t.error); }); }
+async function dbDel(store, key) { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction(store, "readwrite").objectStore(store).delete(key); t.onsuccess = () => res(); t.onerror = () => rej(t.error); }); }
 
 // ---------------------------------------------------------------- state
-const SID = sessionId();
-let state = { files: {}, active: null };
-const models = new Map(); // path -> monaco model
-let editor = null;
-let lastBuild = null; // { name, code }
-let saveTimer = null;
+let TEMPLATES = [];
+let INJECT_DTS = "";
+let injectBundle = null; // lazily fetched lb-inject runtime
+let baseExtraLibs = [];
+
+let meta = { ids: [], current: null };   // open project tabs + selection
+let proj = null;                          // current project { id, name, templateId, files, active }
+const models = new Map();                 // path -> monaco model (current project only)
+let editor = null, lastBuild = null, saveTimer = null;
 
 const $ = (id) => document.getElementById(id);
-function log(msg, cls) {
-  const el = $("log");
-  const line = document.createElement("div");
-  if (cls) line.className = cls;
-  line.textContent = msg;
-  el.appendChild(line);
-  el.scrollTop = el.scrollHeight;
-}
+function log(msg, cls) { const el = $("log"); const line = document.createElement("div"); if (cls) line.className = cls; line.textContent = msg; el.appendChild(line); el.scrollTop = el.scrollHeight; }
 const setStatus = (s) => ($("status").textContent = s);
+const uid = () => "p-" + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
 
-// ---------------------------------------------------------------- monaco setup
-function configureTS(defaults, extraLibs, isJs) {
+// ---------------------------------------------------------------- monaco cfg
+function configureTS(defaults, isJs) {
   const t = monaco.languages.typescript;
-  defaults.setCompilerOptions({
-    target: t.ScriptTarget.ES2022,
-    module: t.ModuleKind.ESNext,
-    moduleResolution: t.ModuleResolutionKind.NodeJs,
-    lib: ["es2023"],
-    types: ["@wunk/lb-script-api-types/ambient"],
-    strict: true,
-    skipLibCheck: true,
-    allowNonTsExtensions: true,
-    noEmit: true,
-    ...(isJs ? { allowJs: true, checkJs: true } : {}),
-  });
-  defaults.setExtraLibs(extraLibs);
+  defaults.setCompilerOptions({ target: t.ScriptTarget.ES2022, module: t.ModuleKind.ESNext, moduleResolution: t.ModuleResolutionKind.NodeJs, lib: ["es2023"], types: ["@wunk/lb-script-api-types/ambient"], strict: true, skipLibCheck: true, allowNonTsExtensions: true, noEmit: true, ...(isJs ? { allowJs: true, checkJs: true } : {}) });
+  defaults.setExtraLibs(baseExtraLibs);
   defaults.setEagerModelSync(true);
 }
+const langFor = (p) => (p.endsWith(".js") ? "javascript" : "typescript");
+const uriFor = (path) => monaco.Uri.parse("file:///" + proj.id + "/" + path);
 
-function uriFor(path) {
-  return monaco.Uri.parse("file:///" + path);
-}
-function langFor(path) {
-  return path.endsWith(".js") ? "javascript" : "typescript";
-}
-
-function ensureModel(path, content) {
+function disposeModels() { for (const m of models.values()) m.dispose(); models.clear(); }
+function ensureModel(path) {
   let m = models.get(path);
   if (!m) {
-    m = monaco.editor.createModel(content, langFor(path), uriFor(path));
-    m.onDidChangeContent(() => {
-      state.files[path] = m.getValue();
-      scheduleSave();
-    });
+    m = monaco.editor.createModel(proj.files[path], langFor(path), uriFor(path));
+    m.onDidChangeContent(() => { proj.files[path] = m.getValue(); scheduleSave(); });
     models.set(path, m);
   }
   return m;
 }
-
-function openFile(path) {
-  state.active = path;
-  const m = ensureModel(path, state.files[path]);
-  editor.setModel(m);
-  renderFiles();
-  scheduleSave();
-}
+function openFile(path) { proj.active = path; editor.setModel(ensureModel(path)); renderFiles(); scheduleSave(); }
 
 function renderFiles() {
-  const wrap = $("files");
-  wrap.innerHTML = "";
-  for (const path of Object.keys(state.files).sort()) {
-    const row = document.createElement("div");
-    row.className = "file" + (path === state.active ? " active" : "");
-    const name = document.createElement("span");
-    name.textContent = path;
-    name.onclick = () => openFile(path);
-    row.appendChild(name);
-    if (Object.keys(state.files).length > 1) {
-      const x = document.createElement("span");
-      x.className = "x";
-      x.textContent = "✕";
-      x.title = "delete";
-      x.onclick = (e) => {
-        e.stopPropagation();
-        delete state.files[path];
-        const m = models.get(path);
-        if (m) { m.dispose(); models.delete(path); }
-        if (state.active === path) state.active = Object.keys(state.files)[0];
-        if (state.active) openFile(state.active);
-        else renderFiles();
-        scheduleSave();
-      };
+  const wrap = $("files"); wrap.innerHTML = "";
+  for (const path of Object.keys(proj.files).sort()) {
+    const row = document.createElement("div"); row.className = "file" + (path === proj.active ? " active" : "");
+    const name = document.createElement("span"); name.textContent = path; name.onclick = () => openFile(path); row.appendChild(name);
+    if (Object.keys(proj.files).length > 1) {
+      const x = document.createElement("span"); x.className = "x"; x.textContent = "✕";
+      x.onclick = (e) => { e.stopPropagation(); delete proj.files[path]; const m = models.get(path); if (m) { m.dispose(); models.delete(path); } if (proj.active === path) proj.active = Object.keys(proj.files)[0]; if (proj.active) openFile(proj.active); else renderFiles(); scheduleSave(); };
       row.appendChild(x);
     }
     wrap.appendChild(row);
   }
 }
 
-function scheduleSave() {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(save, 300);
+// ---------------------------------------------------------------- projects
+async function loadProject(id) {
+  const p = await dbGet(P_STORE, id);
+  if (!p) return false;
+  proj = p; disposeModels();
+  for (const path of Object.keys(proj.files)) ensureModel(path);
+  meta.current = id; location.hash = id;
+  openFile(proj.active && proj.files[proj.active] ? proj.active : Object.keys(proj.files)[0]);
+  renderTabs();
+  return true;
 }
-async function save() {
-  await dbPut(SID, { files: state.files, active: state.active, updatedAt: Date.now() });
+function templateById(tid) { return TEMPLATES.find((t) => t.id === tid) || TEMPLATES[0]; }
+async function createProject(templateId, opts = {}) {
+  const t = templateById(templateId);
+  const n = meta.ids.filter((id) => id.startsWith("p-")).length + 1;
+  proj = { id: uid(), name: opts.name || t.name + " " + n, templateId: t.id, files: JSON.parse(JSON.stringify(t.files)), active: Object.keys(t.files)[0], updatedAt: Date.now() };
+  meta.ids.push(proj.id); meta.current = proj.id;
+  await saveProject(); await saveMeta();
+  disposeModels();
+  for (const path of Object.keys(proj.files)) ensureModel(path);
+  location.hash = proj.id;
+  openFile(proj.active); renderTabs();
+  return proj.id;
 }
+async function closeProject(id) {
+  await dbDel(P_STORE, id);
+  meta.ids = meta.ids.filter((x) => x !== id);
+  if (!meta.ids.length) { await saveMeta(); return createProject("default-ts"); }
+  await saveMeta();
+  if (meta.current === id) await loadProject(meta.ids[meta.ids.length - 1]); else renderTabs();
+}
+function renderTabs() {
+  const wrap = $("tabs"); wrap.innerHTML = "";
+  for (const id of meta.ids) {
+    const tab = document.createElement("div"); tab.className = "ptab" + (id === meta.current ? " active" : "");
+    const isCur = id === meta.current;
+    const label = isCur ? proj : null;
+    const name = document.createElement("span"); name.textContent = (label ? label.name : id);
+    name.onclick = () => { if (id !== meta.current) loadProject(id); };
+    tab.appendChild(name);
+    const x = document.createElement("span"); x.className = "x"; x.textContent = "✕"; x.title = "close project";
+    x.onclick = (e) => { e.stopPropagation(); if (confirm("Close & delete this project?")) closeProject(id); };
+    tab.appendChild(x);
+    wrap.appendChild(tab);
+  }
+  const plus = document.createElement("button"); plus.id = "newProj"; plus.textContent = "+ new"; plus.onclick = showTemplateMenu;
+  wrap.appendChild(plus);
+  // tab names for non-current projects are their ids until loaded; fetch names
+  hydrateTabNames();
+}
+async function hydrateTabNames() {
+  const spans = [...$("tabs").querySelectorAll(".ptab")];
+  for (let i = 0; i < meta.ids.length; i++) {
+    const id = meta.ids[i];
+    if (id === meta.current) continue;
+    const p = await dbGet(P_STORE, id);
+    if (p && spans[i]) spans[i].firstChild.textContent = p.name;
+  }
+}
+function showTemplateMenu() {
+  const menu = $("tmplMenu"); menu.innerHTML = "";
+  for (const t of TEMPLATES) {
+    const item = document.createElement("div"); item.className = "item";
+    item.innerHTML = "<b>" + t.name + "</b><span>" + t.description + "</span>";
+    item.onclick = () => { menu.style.display = "none"; createProject(t.id); };
+    menu.appendChild(item);
+  }
+  const r = $("newProj").getBoundingClientRect();
+  menu.style.left = Math.max(6, r.left) + "px"; menu.style.top = r.bottom + 4 + "px"; menu.style.display = "block";
+}
+document.addEventListener("click", (e) => { const m = $("tmplMenu"); if (m.style.display === "block" && !m.contains(e.target) && e.target.id !== "newProj") m.style.display = "none"; });
 
-// ---------------------------------------------------------------- esbuild build
+function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(() => { saveProject(); saveMeta(); }, 300); }
+async function saveProject() { if (!proj) return; proj.updatedAt = Date.now(); await dbPut(P_STORE, proj.id, proj); }
+async function saveMeta() { await dbPut(M_STORE, "open", meta); }
+
+// ---------------------------------------------------------------- build
 let esbuildReady = null;
-function initEsbuild() {
-  if (!esbuildReady) esbuildReady = esbuild.initialize({ wasmURL: "esbuild.wasm" });
-  return esbuildReady;
-}
-function vfsPlugin(files) {
+function initEsbuild() { if (!esbuildReady) esbuildReady = esbuild.initialize({ wasmURL: "esbuild.wasm" }); return esbuildReady; }
+async function ensureInjectBundle() { if (injectBundle == null) injectBundle = await fetch("lb-inject-bundled.js").then((r) => r.text()); return injectBundle; }
+
+function buildPlugins(files) {
   const dir = (p) => { const i = p.lastIndexOf("/"); return i < 0 ? "" : p.slice(0, i); };
-  const join = (base, rel) => {
-    const parts = (base + "/" + rel).split("/");
-    const out = [];
-    for (const seg of parts) {
-      if (seg === "" || seg === ".") continue;
-      if (seg === "..") out.pop();
-      else out.push(seg);
-    }
-    return out.join("/");
-  };
+  const join = (base, rel) => { const parts = (base + "/" + rel).split("/"); const out = []; for (const s of parts) { if (s === "" || s === ".") continue; if (s === "..") out.pop(); else out.push(s); } return out.join("/"); };
   const norm = (p) => p.replace(/^\/+/, "");
+  const TYPES = "@wunk/lb-script-api-types/types/";
   return {
-    name: "vfs",
+    name: "lb",
     setup(build) {
-      build.onResolve({ filter: /.*/ }, (args) => {
-        if (args.path.startsWith("@wunk/")) return { path: args.path, namespace: "empty" };
-        if (args.kind === "entry-point") return { path: norm(args.path), namespace: "vfs" };
-        let p = args.path;
-        if (p.startsWith("./") || p.startsWith("../")) p = join(dir(args.importer), p);
-        p = norm(p);
-        const cands = [p, p + ".ts", p + ".js", p + "/index.ts", p + "/index.js"];
-        const hit = cands.find((c) => c in files);
+      // JVM-type value import → Java.type("<fqcn>")  (matches the template build)
+      build.onResolve({ filter: /^@wunk\/lb-script-api-types\/types\// }, (a) => ({ path: a.path, namespace: "jvm" }));
+      build.onLoad({ filter: /.*/, namespace: "jvm" }, (a) => {
+        const fqcn = a.path.slice(TYPES.length).replace(/\//g, "."); const name = fqcn.slice(fqcn.lastIndexOf(".") + 1);
+        return { contents: `export const ${name} = Java.type(${JSON.stringify(fqcn)});`, loader: "js" };
+      });
+      // any other @wunk/* import is types-only → empty
+      build.onResolve({ filter: /^@wunk\// }, (a) => ({ path: a.path, namespace: "empty" }));
+      // lb-inject → inlined runtime + re-export of the global it defines
+      build.onResolve({ filter: /^lb-inject$/ }, () => ({ path: "lb-inject", namespace: "lbinject" }));
+      build.onLoad({ filter: /.*/, namespace: "lbinject" }, () => ({ contents: "globalThis.__nfLibConsumed = true;\n" + (injectBundle || "") + "\nexport const Inject = globalThis.Inject;", loader: "js" }));
+      build.onLoad({ filter: /.*/, namespace: "empty" }, () => ({ contents: "", loader: "js" }));
+      // project files
+      build.onResolve({ filter: /.*/ }, (a) => {
+        if (a.kind === "entry-point") return { path: norm(a.path), namespace: "vfs" };
+        let p = a.path; if (p.startsWith("./") || p.startsWith("../")) p = join(dir(a.importer), p); p = norm(p);
+        const cands = [p, p + ".ts", p + ".js", p + "/index.ts", p + "/index.js"]; const hit = cands.find((c) => c in files);
         return { path: hit || p, namespace: "vfs" };
       });
-      build.onLoad({ filter: /.*/, namespace: "empty" }, () => ({ contents: "", loader: "js" }));
-      build.onLoad({ filter: /.*/, namespace: "vfs" }, (args) => {
-        const contents = files[args.path];
-        if (contents == null) return { errors: [{ text: "not found in project: " + args.path }] };
-        return { contents, loader: args.path.endsWith(".js") ? "js" : "ts" };
-      });
+      build.onLoad({ filter: /.*/, namespace: "vfs" }, (a) => { const c = files[a.path]; if (c == null) return { errors: [{ text: "not in project: " + a.path }] }; return { contents: c, loader: a.path.endsWith(".js") ? "js" : "ts" }; });
     },
   };
 }
-
-function entryPoint() {
-  if ("main.ts" in state.files) return "main.ts";
-  if ("main.js" in state.files) return "main.js";
-  return Object.keys(state.files)[0];
-}
+const entryPoint = () => ("main.ts" in proj.files ? "main.ts" : "main.js" in proj.files ? "main.js" : Object.keys(proj.files)[0]);
 
 async function build() {
-  $("build").disabled = true;
-  setStatus("building…");
+  $("build").disabled = true; setStatus("building…");
   try {
     await initEsbuild();
+    if (Object.values(proj.files).some((c) => /from\s+["']lb-inject["']/.test(c))) await ensureInjectBundle();
     const entry = entryPoint();
-    const res = await esbuild.build({
-      entryPoints: [entry],
-      bundle: true,
-      format: "esm",
-      target: "es2022",
-      write: false,
-      plugins: [vfsPlugin(state.files)],
-      legalComments: "none",
-    });
+    const res = await esbuild.build({ entryPoints: [entry], bundle: true, format: "esm", target: "es2022", write: false, plugins: [buildPlugins(proj.files)], legalComments: "none" });
     const code = res.outputFiles[0].text;
-    const name = entry.replace(/\.(ts|js)$/, "") + ".mjs";
-    lastBuild = { name, code };
+    lastBuild = { name: entry.replace(/\.(ts|js)$/, "") + ".mjs", code };
     $("download").disabled = false;
-    log(`✓ built ${name} — ${code.length} bytes`, "s");
-    if (res.warnings.length) for (const w of res.warnings) log("warn: " + w.text, "d");
+    log("✓ built " + lastBuild.name + " — " + code.length + " bytes", "s");
+    for (const w of res.warnings) log("warn: " + w.text, "d");
     setStatus("build ok");
   } catch (e) {
     const errs = (e && e.errors) || [];
     if (errs.length) for (const er of errs) log("✗ " + (er.location ? er.location.file + ": " : "") + er.text, "e");
     else log("✗ build failed: " + (e && e.message || e), "e");
     setStatus("build failed");
-  } finally {
-    $("build").disabled = false;
-  }
+  } finally { $("build").disabled = false; }
 }
-
-function download() {
-  if (!lastBuild) return;
-  const blob = new Blob([lastBuild.code], { type: "text/javascript" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = lastBuild.name;
-  a.click();
-  URL.revokeObjectURL(a.href);
-  log("downloaded " + lastBuild.name, "d");
-}
+function download() { if (!lastBuild) return; const blob = new Blob([lastBuild.code], { type: "text/javascript" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = lastBuild.name; a.click(); URL.revokeObjectURL(a.href); }
 
 // ---------------------------------------------------------------- init
 require(["vs/editor/editor.main"], async () => {
-  setStatus("loading typings…");
+  setStatus("loading templates + typings…");
+  [TEMPLATES, INJECT_DTS] = await Promise.all([
+    fetch("templates.json").then((r) => r.json()).then((d) => d.templates),
+    fetch("lb-inject.d.ts").then((r) => r.text()),
+  ]);
   const bundle = await fetch("typings-bundle.json").then((r) => r.json());
-  const extraLibs = Object.entries(bundle).map(([p, content]) => ({ content, filePath: "file:///" + p }));
-  configureTS(monaco.languages.typescript.typescriptDefaults, extraLibs, false);
-  configureTS(monaco.languages.typescript.javascriptDefaults, extraLibs, true);
+  baseExtraLibs = Object.entries(bundle).map(([p, content]) => ({ content, filePath: "file:///" + p }));
+  baseExtraLibs.push({ content: INJECT_DTS, filePath: "file:///node_modules/@types/lb-inject/index.d.ts" });
+  configureTS(monaco.languages.typescript.typescriptDefaults, false);
+  configureTS(monaco.languages.typescript.javascriptDefaults, true);
 
-  $("sid").innerHTML = "session <code>" + SID + "</code>";
+  editor = monaco.editor.create($("editor"), { theme: "vs-dark", automaticLayout: true, fontSize: 13, minimap: { enabled: false } });
 
-  // Load this session, or seed a fresh default project.
-  const saved = await dbGet(SID);
-  state = saved
-    ? { files: saved.files, active: saved.active }
-    : { files: { ...DEFAULT_PROJECT.files }, active: DEFAULT_PROJECT.active };
-
-  editor = monaco.editor.create($("editor"), {
-    theme: "vs-dark",
-    automaticLayout: true,
-    fontSize: 13,
-    minimap: { enabled: false },
-  });
-  for (const path of Object.keys(state.files)) ensureModel(path, state.files[path]);
-  openFile(state.active || Object.keys(state.files)[0]);
-  if (!saved) await save();
+  meta = (await dbGet(M_STORE, "open")) || { ids: [], current: null };
+  const wanted = location.hash.replace(/^#/, "");
+  if (wanted && meta.ids.includes(wanted)) await loadProject(wanted);
+  else if (meta.current && meta.ids.includes(meta.current) && (await loadProject(meta.current))) {}
+  else if (meta.ids.length && (await loadProject(meta.ids[0]))) {}
+  else await createProject("default-ts");
 
   $("build").onclick = build;
   $("download").onclick = download;
-  $("addFile").onclick = () => {
-    const name = prompt("New file name (e.g. helper.ts):");
-    if (!name) return;
-    if (name in state.files) return openFile(name);
-    state.files[name] = langFor(name) === "javascript" ? "// @ts-check\n" : "";
-    openFile(name);
-  };
-  $("newSession").onclick = () => {
-    location.hash = "";
-    location.reload();
-  };
+  $("addFile").onclick = () => { const name = prompt("New file name (e.g. helper.ts):"); if (!name) return; if (name in proj.files) return openFile(name); proj.files[name] = langFor(name) === "javascript" ? "// @ts-check\n" : ""; openFile(name); };
+  $("rename").onclick = async () => { const n = prompt("Project name:", proj.name); if (!n) return; proj.name = n; await saveProject(); renderTabs(); };
 
   setStatus("ready");
-  log("ready — session " + SID + ", " + Object.keys(state.files).length + " files", "d");
+  log("ready — " + meta.ids.length + " project(s), " + TEMPLATES.length + " templates", "d");
 
-  // hooks for the headless verifier
   window.__ide = {
     ready: true,
-    sid: SID,
-    listFiles: () => Object.keys(state.files),
+    templates: () => TEMPLATES.map((t) => t.id),
+    listProjects: () => meta.ids.slice(),
+    current: () => ({ id: proj.id, name: proj.name, templateId: proj.templateId }),
+    listFiles: () => Object.keys(proj.files),
+    createProject: (tid) => createProject(tid),
+    switchProject: (id) => loadProject(id),
+    closeProject: (id) => closeProject(id),
     setActiveValue: (v) => editor.getModel().setValue(v),
-    diagnostics: async () => {
-      const m = editor.getModel();
-      const getW = await monaco.languages.typescript.getTypeScriptWorker();
-      const c = await getW(m.uri);
-      const u = m.uri.toString();
-      const ds = [...(await c.getSyntacticDiagnostics(u)), ...(await c.getSemanticDiagnostics(u))];
-      return ds.map((d) => ({ code: d.code, message: typeof d.messageText === "string" ? d.messageText : d.messageText.messageText }));
-    },
+    diagnostics: async () => { const m = editor.getModel(); const gw = await monaco.languages.typescript.getTypeScriptWorker(); const c = await gw(m.uri); const u = m.uri.toString(); const ds = [...(await c.getSyntacticDiagnostics(u)), ...(await c.getSemanticDiagnostics(u))]; return ds.map((d) => ({ code: d.code, message: typeof d.messageText === "string" ? d.messageText : d.messageText.messageText })); },
     build: async () => { await build(); return lastBuild; },
-    reloadFromDb: async () => await dbGet(SID),
+    reloadMeta: async () => await dbGet(M_STORE, "open"),
+    getProject: async (id) => await dbGet(P_STORE, id),
   };
 });

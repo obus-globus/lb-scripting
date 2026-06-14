@@ -19,14 +19,21 @@ orchestration / Kubernetes / licensing baggage of the server-side options — se
 ## Features (all verified headless by `npm run verify`)
 
 ```
-✓ default project (main.ts + util.ts), cross-file ./util resolves & type-checks
-✓ live diagnostics (errors reported as you type)
-✓ build → self-contained .mjs (helper inlined, type-only @wunk import erased)
-✓ download the built .mjs
-✓ add / delete files
-✓ autosave to IndexedDB; survives reload
-✓ per-session isolation (different #session = different files)
+✓ multiple projects in a tab bar, each its own files, persisted independently
+✓ "+ new" template picker, seeded from the real LB templates:
+    default-ts · plain-js · starter-ts · inject-ts (lb-inject)
+✓ live type-checking + autocomplete (TS and // @ts-check JS)
+✓ build → self-contained .mjs, matching the template build conventions:
+    · JVM-type value imports  →  Java.type("<fqcn>")
+    · `import { Inject } from "lb-inject"`  →  inlined lb-inject runtime
+    · type-only @wunk imports erased; local ./imports inlined
+✓ download the built .mjs · add / delete / rename files
+✓ autosave to IndexedDB; projects survive reload; per-project isolation
 ```
+
+Templates are generated from the canonical sources by `scripts/gen-templates.mjs`
+(into `public/templates.json` + the lb-inject typings/runtime), so they stay in
+sync with the real `lb-*-template` repos.
 
 ![screenshot](docs/screenshot.png)
 

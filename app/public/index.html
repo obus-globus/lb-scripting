@@ -8,15 +8,29 @@
     :root { --bg:#1e1e1e; --bg2:#252526; --bg3:#2d2d2d; --fg:#d4d4d4; --acc:#0e639c; --acc2:#1177bb; --err:#f48771; --ok:#89d185; }
     * { box-sizing: border-box; }
     html, body { margin:0; height:100%; font-family: ui-monospace, "SF Mono", Menlo, monospace; background:var(--bg); color:var(--fg); }
-    #app { display:grid; grid-template-rows:auto 1fr auto; height:100%; }
+    #app { display:grid; grid-template-rows:auto auto 1fr auto; height:100%; }
     #bar { display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg2); border-bottom:1px solid #111; font-size:13px; }
     #bar .spacer { flex:1; }
     #bar button { font:inherit; background:var(--acc); color:#fff; border:0; border-radius:4px; padding:5px 10px; cursor:pointer; }
     #bar button:hover { background:var(--acc2); }
     #bar button.ghost { background:#3a3a3a; }
     #bar button.ghost:hover { background:#484848; }
-    #sid { color:#9cdcfe; }
-    #sid code { background:#000; padding:1px 5px; border-radius:3px; }
+    #bar button:disabled { opacity:.5; cursor:default; }
+    /* project tab bar */
+    #tabs { display:flex; align-items:stretch; gap:2px; background:#1b1b1b; border-bottom:1px solid #111; padding:0 6px; overflow-x:auto; min-height:34px; }
+    .ptab { display:flex; align-items:center; gap:8px; padding:6px 10px; font-size:12px; cursor:pointer; color:#aaa; border-top:2px solid transparent; white-space:nowrap; }
+    .ptab:hover { background:var(--bg3); }
+    .ptab.active { background:var(--bg); color:#fff; border-top-color:var(--acc2); }
+    .ptab .x { opacity:.45; } .ptab .x:hover { opacity:1; color:var(--err); }
+    .ptab .tmpl { font-size:10px; color:#6a6; }
+    #newProj { align-self:center; margin-left:4px; background:#3a3a3a; color:#fff; border:0; border-radius:4px; padding:4px 9px; font:inherit; font-size:13px; cursor:pointer; }
+    #newProj:hover { background:#484848; }
+    /* template menu */
+    #tmplMenu { position:fixed; z-index:50; background:var(--bg2); border:1px solid #111; border-radius:6px; box-shadow:0 6px 24px #000a; padding:4px; display:none; min-width:280px; }
+    #tmplMenu .item { padding:7px 10px; border-radius:4px; cursor:pointer; }
+    #tmplMenu .item:hover { background:var(--acc); }
+    #tmplMenu .item b { font-size:13px; } #tmplMenu .item span { display:block; font-size:11px; color:#9a9a9a; }
+    #tmplMenu .item:hover span { color:#dde; }
     #mid { display:grid; grid-template-columns:200px 1fr; min-height:0; }
     #side { background:var(--bg2); border-right:1px solid #111; overflow:auto; }
     #side h4 { margin:0; padding:8px 10px; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:#888; }
@@ -26,7 +40,7 @@
     .file .x { opacity:.5; }
     .file .x:hover { opacity:1; color:var(--err); }
     #editor { min-width:0; }
-    #log { height:160px; background:#141414; border-top:1px solid #111; overflow:auto; padding:8px 10px; font-size:12px; white-space:pre-wrap; }
+    #log { height:150px; background:#141414; border-top:1px solid #111; overflow:auto; padding:8px 10px; font-size:12px; white-space:pre-wrap; }
     #log .e { color:var(--err); }
     #log .s { color:var(--ok); }
     #log .d { color:#888; }
@@ -37,20 +51,21 @@
   <div id="app">
     <div id="bar">
       <strong>LB Script IDE</strong>
-      <span id="sid"></span>
       <span class="spacer"></span>
       <span id="status">booting…</span>
       <button id="addFile" class="ghost">+ file</button>
-      <button id="newSession" class="ghost">new session</button>
+      <button id="rename" class="ghost">rename</button>
       <button id="build">build</button>
       <button id="download" class="ghost" disabled>download .mjs</button>
     </div>
+    <div id="tabs"></div>
     <div id="mid">
       <div id="side"><h4>Files</h4><div id="files"></div></div>
       <div id="editor"></div>
     </div>
     <div id="log"></div>
   </div>
+  <div id="tmplMenu"></div>
   <script src="vs/loader.js"></script>
   <script src="esbuild.js"></script>
   <script src="main.js"></script>

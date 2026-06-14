@@ -8,3 +8,6 @@ public/typings-bundle.json
 public/vs
 public/esbuild.js
 public/esbuild.wasm
+public/templates.json
+public/lb-inject.d.ts
+public/lb-inject-bundled.js
