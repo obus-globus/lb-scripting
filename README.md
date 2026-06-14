@@ -124,15 +124,26 @@ template's Node `scripts/build.mjs`, moved into the browser. esbuild doesn't
 type-check (Monaco does that) — together they cover the whole author→check→build
 flow client-side.
 
-## Status: the browser-only stack is fully validated
+## Status: validated → MVP built
 
-Both engineering unknowns from the research are now proven end-to-end, zero
-backend, per-tab isolated:
+Both engineering unknowns from the research are proven end-to-end, and they're
+now wired into a working IDE — all zero backend, per-tab isolated:
 
 ```
-type-check + autocomplete (TS and // @ts-check JS) ─ spikes/monaco-typings/   ✅
+type-check + autocomplete (TS and // @ts-check JS) ─ spikes/monaco-typings/    ✅
 build → downloadable .mjs (TS and JS)              ─ spikes/esbuild-wasm-build/ ✅
+MVP: editor + build + persistence + isolation      ─ app/                       ✅
 ```
+
+### [`app/`](app/) — the MVP (✅ verified headless)
+
+Monaco + typings + esbuild-wasm + per-session IndexedDB persistence in one page.
+`npm install && npm run serve`. All features asserted by `app/verify.mjs`:
+default project type-checks (cross-file resolves), live diagnostics, build →
+downloadable self-contained `.mjs`, autosave survives reload, and a different
+`#session` gets its own isolated files.
+
+![MVP](app/docs/screenshot.png)
 
 The only remaining piece is **persistence** (IndexedDB / File System Access API)
 — a standard browser API, not a research risk. What stays intrinsically out of

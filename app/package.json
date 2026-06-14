@@ -1,0 +1,23 @@
+{
+  "name": "lb-ide-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser-only LB script IDE MVP: Monaco type-checking + esbuild-wasm build, per-session IndexedDB persistence, zero backend.",
+  "type": "module",
+  "scripts": {
+    "gen-typings": "node scripts/gen-typings.mjs",
+    "postinstall": "node scripts/gen-typings.mjs",
+    "serve": "node serve.mjs",
+    "verify": "node verify.mjs"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@wunk/lb-script-api-types": "^0.38.4",
+    "esbuild-wasm": "^0.23.1",
+    "monaco-editor": "^0.52.2",
+    "typescript": "5.4"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^23.11.1"
+  }
+}
