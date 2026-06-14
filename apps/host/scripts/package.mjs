@@ -13,8 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const host = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const repo = path.resolve(host, "..");
-const app = path.join(repo, "app");
+const app = path.resolve(host, "../editor"); // apps/host + apps/editor are siblings
 const release = path.join(host, "release");
 
 console.log("building editor (app)…");

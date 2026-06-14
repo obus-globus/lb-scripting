@@ -1,72 +1,73 @@
-# lb-ide
+# lb-scripting
 
-A **browser-based IDE for writing [LiquidBounce](https://liquidbounce.net)
-(nextgen, MC 1.21+) TypeScript/JS scripts** — with full type-checking and a real
-build, entirely client-side (no backend), and an optional **in-game** mode that
-opens the editor inside the Minecraft client and loads scripts straight into
-LiquidBounce.
+Development monorepo for the **LiquidBounce script IDE** — a browser-based IDE
+for writing [LiquidBounce](https://liquidbounce.net) (nextgen, MC 1.21+)
+TypeScript/JS scripts, with full type-checking and a real build entirely
+client-side (no backend), plus an **in-game** mode that opens the editor inside
+the Minecraft client and loads scripts straight into LiquidBounce.
 
 Live (Cloudflare-Access gated): `https://host.example/lb-ide/`
 
 ```
-app/    the editor (Monaco + esbuild-wasm) — the deployed web app
-host/   lb-ide-host: a LiquidBounce script that opens the editor in-game (CEF)
-docs/   in-game integration plan
+apps/
+  editor/      the browser IDE (Monaco + esbuild-wasm) — the deployed web app
+  host/        lb-ide-host: a LiquidBounce script that opens the editor in-game (CEF)
+templates/     the script templates (dev assets the editor builds its "+ new" picker from)
+docs/          in-game integration plan + structure notes
 ```
 
-## The editor — [`app/`](app/)
+> Scope: this is the **development** repo for the IDE + templates. Finished/
+> standalone products (e.g. nodeflow) and the published typings package
+> (`@wunk/lb-script-api-types`, an npm dependency) stay in their own repos.
+
+## The editor — [`apps/editor/`](apps/editor/)
 
 Monaco editor with the `@wunk/lb-script-api-types` typings loaded into the TS
 worker (real autocomplete + type-checking), and **esbuild-wasm** to bundle a
-project into a single `.mjs`, all in the browser. No server, no accounts.
+project into a single `.mjs`, all in the browser.
 
-- **Multiple projects** in a tab bar (each its own files, persisted in IndexedDB),
-  plus a second tier of **open-file tabs**.
-- **VS Code-style file tree** with folders, a "show supporting files" toggle.
-- **"+ new" picker** grouped into categories (one per real LB template) — a blank
-  project + one project per example script. Includes `lb-ide-host` itself as a
-  multi-file example.
-- **Build** → matches the template conventions: JVM-type value imports become
-  `Java.type("…")`, `import { Inject } from "lb-inject"` inlines the lb-inject
-  runtime, type-only imports erased, local imports inlined.
-- **Shareable links** — the whole project gzip-encoded in the URL `#` (no backend).
-- **Themes** — Dark + a LiquidBounce theme (LB's real `#4677ff` palette).
-- **In-client mode** (when opened by `host/`): build & run in client, hot-reload,
-  GraalJS debugger, and a typed REPL with live `log()` streaming.
+- Multiple projects (tabs) + open-file tabs; VS Code-style file tree.
+- "+ new" picker grouped by category, sourced from [`templates/`](templates/) —
+  a blank project + one project per example script (incl. `lb-ide-host` itself).
+- Build matches the template conventions (`Java.type(…)` rewrite, `lb-inject`
+  inlining, type-only erasure, local inlining).
+- Shareable links (project gzip-encoded in the URL `#`), Dark + LiquidBounce
+  themes, and an **in-client mode** (build & run, hot-reload, debugger, typed
+  REPL with live `log()` streaming).
 
 ```bash
-cd app
-npm install            # also generates the typings closure + templates
+cd apps/editor
+npm install            # postinstall: typings closure + templates + asset links
 npm run serve          # http://localhost:8085
-npm run verify         # headless end-to-end suite (needs google-chrome)
+npm run verify         # headless end-to-end suite (needs a chromium)
 npm run build-dist     # assemble a static dist/ for hosting
 ```
 
-## In-game — [`host/`](host/)
+## In-game — [`apps/host/`](apps/host/)
 
-`lb-ide-host` is a LiquidBounce script that opens the editor inside the running
-client (LiquidBounce's CEF browser) and bridges it to `ScriptManager`, so you can
-author, build, and **load a script into the client without alt-tabbing**. It runs
-a localhost-only HTTP server (token + Origin gated) serving the editor + a small
-API (`/api/load`, `/api/repl`, …). See [`host/README.md`](host/README.md) and the
+`lb-ide-host` opens the editor inside the running client (LiquidBounce's CEF
+browser) and bridges it to `ScriptManager`, so you can author, build, and load a
+script into the client without alt-tabbing. Localhost-only HTTP server (token +
+Origin gated). See [`apps/host/README.md`](apps/host/README.md) and the
 [in-game plan](docs/in-game-plan.md).
 
 ```bash
-cd host
+cd apps/host
 npm install
 npm run package        # builds editor + script → release/ + lb-ide-ingame.zip
 # unzip into your LiquidBounce config folder, then `.ide` in-game
 ```
 
-## How it builds in the browser
+## Templates — [`templates/`](templates/)
 
-esbuild only bundles; Monaco's TS worker type-checks. The full
-`@wunk/lb-script-api-types` package is ~96 MB / 56k `.d.ts`, so the editor ships
-only the **transitive closure** a representative script references (~1.2 MB
-gzipped), computed at build time via `tsc --listFiles`. The intrinsic browser
-limits (real `npm install`, a terminal, the live-client `:9229` debug attach)
-stay with the in-game host or a local CLI.
+The starter/example script projects the editor reads at build time
+(`apps/editor/scripts/gen-templates.mjs`): `default-ts` (minimal), `plain-js`,
+`starter-ts`, `inject-ts`. Each carries its `src/` (a main + examples) and
+supporting files. Editing a template here updates the editor's "+ new" picker.
 
-> The repo started as an evaluation of browser-IDE approaches (Theia, Che,
-> Monaco+TS-worker, WebContainers); the chosen path is Monaco + esbuild-wasm.
-> That exploration lives in the git history.
+## CI
+
+`.github/workflows/build.yml` builds both apps self-contained on every push:
+type-checks + builds the **host script** (artifact `lb-ide-host`), and installs
++ verifies + builds the **editor** (artifact `lb-ide-editor`). Tags `v*` attach
+the host `.mjs` to a Release.

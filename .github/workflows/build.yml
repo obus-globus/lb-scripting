@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: host
+        working-directory: apps/host
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,19 +29,19 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: lb-ide-host
-          path: host/dist/main.mjs
+          path: apps/host/dist/main.mjs
           if-no-files-found: error
       - name: Attach to release (tags only)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: host/dist/main.mjs
+          files: apps/host/dist/main.mjs
 
   build-editor:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: app
+        working-directory: apps/editor
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -60,5 +60,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: lb-ide-editor
-          path: app/dist
+          path: apps/editor/dist
           if-no-files-found: error

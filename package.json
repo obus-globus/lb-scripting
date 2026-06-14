@@ -1,0 +1,13 @@
+{
+  "name": "lb-scripting",
+  "private": true,
+  "description": "Development monorepo for the LiquidBounce scripting IDE: the browser editor (apps/editor), the in-game host script (apps/host), and the script templates (templates/).",
+  "license": "MIT",
+  "scripts": {
+    "install:all": "npm --prefix apps/editor install && npm --prefix apps/host install",
+    "verify": "npm --prefix apps/editor run verify",
+    "build:editor": "npm --prefix apps/editor run build-dist",
+    "build:host": "npm --prefix apps/host run build",
+    "package:ingame": "npm --prefix apps/host run package"
+  }
+}
