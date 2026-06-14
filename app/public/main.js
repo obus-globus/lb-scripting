@@ -14,6 +14,13 @@ self.MonacoEnvironment = {
 };
 require.config({ paths: { vs: BASE + "vs" } });
 
+// In-client host bridge auth: the host embeds a per-session token in the editor
+// URL; we send it as a custom header on every /api/* call (and as ?token= on the
+// SSE stream, since EventSource can't set headers). The custom header forces a
+// CORS preflight that fails cross-origin, so other web pages can't drive the host.
+const API_TOKEN = new URLSearchParams(location.search).get("token") || "";
+function apiFetch(p, opts = {}) { opts.headers = { ...(opts.headers || {}), "X-IDE-Token": API_TOKEN }; return fetch(BASE + p, opts); }
+
 // ---------------------------------------------------------------- persistence
 const DB = "lb-ide", P_STORE = "projects", M_STORE = "meta";
 function idb() {
@@ -69,6 +76,10 @@ function ensureModel(path) {
   return m;
 }
 function openFile(path) {
+  // defend against opening a missing/undefined path (e.g. a malformed share or
+  // an empty project) — fall back to the first file, or an empty editor.
+  if (!path || !(path in proj.files)) path = Object.keys(proj.files)[0];
+  if (!path) { proj.active = null; editor.setModel(null); renderFiles(); renderFtabs(); return; }
   proj.active = path;
   if (!proj.openTabs) proj.openTabs = [];
   if (!proj.openTabs.includes(path)) proj.openTabs.push(path);
@@ -257,6 +268,7 @@ function renderTabs() {
   const wrap = $("tabs"); wrap.innerHTML = "";
   for (const id of meta.ids) {
     const tab = document.createElement("div"); tab.className = "ptab" + (id === meta.current ? " active" : "");
+    tab.dataset.id = id;
     const isCur = id === meta.current;
     const label = isCur ? proj : null;
     const name = document.createElement("span"); name.textContent = (label ? label.name : id);
@@ -273,12 +285,13 @@ function renderTabs() {
   hydrateTabNames();
 }
 async function hydrateTabNames() {
-  const spans = [...$("tabs").querySelectorAll(".ptab")];
-  for (let i = 0; i < meta.ids.length; i++) {
-    const id = meta.ids[i];
+  for (const id of meta.ids.slice()) {
     if (id === meta.current) continue;
     const p = await dbGet(P_STORE, id);
-    if (p && spans[i]) spans[i].firstChild.textContent = p.name;
+    // re-query by data-id after the await — the tab bar may have re-rendered,
+    // so positional indexing would write names to the wrong tab.
+    const tab = $("tabs").querySelector('.ptab[data-id="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
+    if (p && tab && tab.firstChild) tab.firstChild.textContent = p.name;
   }
 }
 function hideTemplateMenu() { $("tmplMenu").style.display = "none"; $("tmplSub").style.display = "none"; }
@@ -326,16 +339,18 @@ function showTemplateMenu() {
 // Bridge: list installed scripts, open the chosen one as a single-file project.
 async function openInstalledScriptPicker() {
   let names = [];
-  try { names = await fetch(BASE + "api/scripts").then((r) => r.json()); } catch { /* */ }
+  try { names = await apiFetch("api/scripts").then((r) => r.json()); } catch { /* */ }
   if (!names || !names.length) { log("no installed scripts found", "d"); return; }
   const menu = $("tmplMenu"); menu.innerHTML = "";
   for (const name of names) {
     const item = document.createElement("div"); item.className = "item";
-    item.innerHTML = "<b>" + name + "</b><span>open from LiquidBounce scripts/</span>";
+    const b = document.createElement("b"); b.textContent = name; // textContent: no HTML injection from filenames
+    const s = document.createElement("span"); s.textContent = "open from LiquidBounce scripts/";
+    item.append(b, s);
     item.onclick = async () => {
       menu.style.display = "none";
       try {
-        const res = await fetch(BASE + "api/script?name=" + encodeURIComponent(name)).then((r) => r.json());
+        const res = await apiFetch("api/script?name=" + encodeURIComponent(name)).then((r) => r.json());
         if (!res.ok) { log("could not read " + name, "e"); return; }
         await openAsProject(name, res.content);
       } catch (e) { log("open failed: " + (e && e.message || e), "e"); }
@@ -381,6 +396,18 @@ async function decodeShare(hash) {
   const json = new TextDecoder().decode(await gunzip(b64uDec(raw)));
   return JSON.parse(json);
 }
+// Validate an untrusted share payload before importing it (prevents crashes /
+// corruption from malformed or hostile #share= links).
+function validShare(p) {
+  if (!p || p.v !== 1 || typeof p.files !== "object" || p.files === null || Array.isArray(p.files)) return false;
+  const keys = Object.keys(p.files);
+  if (keys.length === 0) return false;
+  for (const k of keys) {
+    if (k === "__proto__" || k === "constructor" || k === "prototype") return false;
+    if (typeof p.files[k] !== "string") return false;
+  }
+  return true;
+}
 async function shareProject() {
   try {
     const frag = await encodeShare(proj);
@@ -403,8 +430,17 @@ async function importShared(payload) {
 function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(() => { saveProject(); saveMeta(); }, 300); }
 async function saveProject() { if (!proj) return; proj.updatedAt = Date.now(); await dbPut(P_STORE, proj.id, proj); if (bridgeOn) bridgeSave(proj); }
 // Mirror saves to the in-client host so projects persist on disk (CEF IndexedDB
-// may be ephemeral). Fire-and-forget; the local copy is the source of truth.
-function bridgeSave(p) { try { fetch(BASE + "api/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(p) }).catch(() => {}); } catch { /* */ } }
+// may be ephemeral). Debounced + coalesced with an in-flight guard so rapid
+// edits don't fire overlapping/out-of-order POSTs. Local copy is source of truth.
+let bridgeSaveTimer = null, bridgeSaving = false, bridgePending = null;
+function bridgeSave(p) { bridgePending = p; clearTimeout(bridgeSaveTimer); bridgeSaveTimer = setTimeout(flushBridgeSave, 700); }
+async function flushBridgeSave() {
+  if (bridgeSaving || !bridgePending) return;
+  bridgeSaving = true; const p = bridgePending; bridgePending = null;
+  try { await apiFetch("api/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(p) }); } catch { /* */ }
+  bridgeSaving = false;
+  if (bridgePending) flushBridgeSave(); // a save arrived while in flight → coalesce
+}
 async function saveMeta() { await dbPut(M_STORE, "open", meta); }
 
 // ---------------------------------------------------------------- build
@@ -502,8 +538,10 @@ require(["vs/editor/editor.main"], async () => {
   meta = (await dbGet(M_STORE, "open")) || { ids: [], current: null };
   const wanted = location.hash.replace(/^#/, "");
   if (wanted.startsWith("share=")) {
-    try { await importShared(await decodeShare(wanted)); }
-    catch { log("invalid share link", "e"); if (!(meta.ids.length && (await loadProject(meta.ids[0])))) await createProject("default-ts"); }
+    let payload = null;
+    try { payload = await decodeShare(wanted); } catch { /* */ }
+    if (payload && validShare(payload)) await importShared(payload);
+    else { log("invalid share link", "e"); if (!(meta.ids.length && (await loadProject(meta.ids[0])))) await createProject("default-ts"); }
   }
   else if (wanted && meta.ids.includes(wanted)) await loadProject(wanted);
   else if (meta.current && meta.ids.includes(meta.current) && (await loadProject(meta.current))) {}
@@ -519,14 +557,14 @@ require(["vs/editor/editor.main"], async () => {
   // button stays hidden, so this is purely additive.
   (async () => {
     try {
-      const r = await fetch(BASE + "api/ping", { method: "GET" });
+      const r = await apiFetch("api/ping", { method: "GET" });
       if (!(r.ok && (await r.json()).ok)) return;
       bridgeOn = true;
       $("runClient").style.display = ""; $("autoRun").style.display = ""; $("dbg").style.display = ""; $("replBtn").style.display = "";
       log("connected to LiquidBounce (in-client) — projects persist on disk; run/hot-reload/debug enabled", "d");
       // pull any projects saved on disk (durable across CEF sessions) into the tabs
       try {
-        const disk = await fetch(BASE + "api/projects").then((x) => x.json());
+        const disk = await apiFetch("api/projects").then((x) => x.json());
         let added = 0;
         for (const dp of disk || []) {
           if (dp && dp.id && !meta.ids.includes(dp.id)) { await dbPut(P_STORE, dp.id, dp); meta.ids.push(dp.id); added++; }
@@ -538,7 +576,7 @@ require(["vs/editor/editor.main"], async () => {
   async function loadToClient() {
     await build();
     if (!lastBuild) return;
-    const res = await fetch(BASE + "api/load", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: proj.name, mjs: lastBuild.code, debug: debugOn }) }).then((r) => r.json());
+    const res = await apiFetch("api/load", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: proj.name, mjs: lastBuild.code, debug: debugOn }) }).then((r) => r.json());
     if (res.ok) {
       log("✓ loaded into client as " + res.name + (res.debugPort ? " · inspector on :" + res.debugPort : ""), "s");
       if (res.debugPort) log("attach a debugger: open chrome://inspect (or VS Code) → localhost:" + res.debugPort, "d");
@@ -559,7 +597,7 @@ require(["vs/editor/editor.main"], async () => {
     const code = replEd.getModel().getValue();
     appendRepl("› " + code.replace(/\s*\n\s*/g, " ⏎ "), "in");
     try {
-      const res = await fetch(BASE + "api/repl", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) }).then((r) => r.json());
+      const res = await apiFetch("api/repl", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) }).then((r) => r.json());
       if (res.output) appendRepl(res.output, "log");
       appendRepl(res.ok ? "⇐ " + String(res.result) : "✗ " + (res.error || "?"), res.ok ? "ok" : "err");
     } catch (e) { appendRepl("✗ " + (e && e.message || e), "err"); }
@@ -578,7 +616,7 @@ require(["vs/editor/editor.main"], async () => {
   function setLive(on) {
     if (on && !replStream && bridgeOn) {
       try {
-        replStream = new EventSource(BASE + "api/repl/stream");
+        replStream = new EventSource(BASE + "api/repl/stream?token=" + encodeURIComponent(API_TOKEN));
         replStream.onmessage = (e) => { try { appendRepl(JSON.parse(e.data), "stream"); } catch { appendRepl(e.data, "stream"); } };
       } catch { /* */ }
     } else if (!on && replStream) { try { replStream.close(); } catch { /* */ } replStream = null; }

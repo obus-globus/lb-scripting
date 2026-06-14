@@ -131,7 +131,26 @@ await page.waitForFunction("window.__ide && window.__ide.ready === true", { time
 const metaAfter = await page.evaluate(() => window.__ide.reloadMeta());
 ok(metaAfter && metaAfter.ids.length >= 3, "projects persisted across reload: " + (metaAfter && metaAfter.ids.length));
 
+console.log("\n[5] shareable URL round-trip + malformed safety");
+await page.evaluate(() => window.__ide.createProject("default-ts", "multi-file")); // main.ts + lib/format.ts
+const SH = "SHARE_" + Math.random().toString(36).slice(2, 7);
+await page.evaluate((s) => window.__ide.setActiveValue("// " + s + "\nregisterScript({ name: 'S', version: '0', authors: [] });"), SH);
+await new Promise((r) => setTimeout(r, 300));
+const shareUrl = await page.evaluate(() => window.__ide.share());
+ok(shareUrl.includes("#share="), "share() produced a #share= link");
+// open the link in fresh storage — must reconstruct WITHOUT IndexedDB
+await page.evaluate(() => new Promise((r) => { const x = indexedDB.deleteDatabase("lb-ide"); x.onsuccess = x.onerror = () => r(); }));
+await page.goto(shareUrl, { waitUntil: "domcontentloaded" });
+await page.waitForFunction("window.__ide && window.__ide.ready === true", { timeout: 60000 });
+ok((await page.evaluate(() => window.__ide.activeContent())).includes(SH), "shared content round-trips via the link");
+ok((await page.evaluate(() => window.__ide.listFiles())).some((f) => f.endsWith("lib/format.ts")), "shared link carries ALL files (not just main)");
+// a malformed share must not brick the app
+await page.evaluate(() => new Promise((r) => { const x = indexedDB.deleteDatabase("lb-ide"); x.onsuccess = x.onerror = () => r(); }));
+await page.goto(base + "#share=not__valid__gzip", { waitUntil: "domcontentloaded" });
+await page.waitForFunction("window.__ide && window.__ide.ready === true", { timeout: 60000 });
+ok((await page.evaluate(() => window.__ide.listFiles())).length > 0, "malformed share link falls back to a project (no crash)");
+
 await browser.close();
 server.close();
 if (fails.length) { console.log("\nFAIL (" + fails.length + "):"); for (const f of fails) console.log("  - " + f); process.exit(1); }
-console.log("\nPASS — project tabs + templates (incl. inject) + JVM-type/lb-inject build + isolation + persistence.");
+console.log("\nPASS — tabs + templates + build + isolation + persistence + share round-trip.");

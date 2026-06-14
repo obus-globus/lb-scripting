@@ -38,28 +38,27 @@ writeFileSync(
 );
 
 const tscBin = path.join(appRoot, "node_modules/.bin/tsc");
-const listed = execSync(`"${tscBin}" -p "${path.join(tmp, "tsconfig.json")}" --listFiles`, {
-  encoding: "utf8",
-  maxBuffer: 256 * 1024 * 1024,
-  cwd: appRoot,
-})
-  .split("\n")
-  .map((l) => l.trim())
-  .filter((p) => p.startsWith(pkgRoot));
-
 const bundle = {};
 let bytes = 0;
-for (const abs of listed) {
-  const rel = "node_modules/@wunk/lb-script-api-types/" + path.relative(pkgRoot, abs);
-  const content = readFileSync(abs, "utf8");
-  bundle[rel] = content;
-  bytes += content.length;
-}
-bundle["node_modules/@wunk/lb-script-api-types/package.json"] = readFileSync(
-  path.join(pkgRoot, "package.json"),
-  "utf8",
-);
+try {
+  const listed = execSync(`"${tscBin}" -p "${path.join(tmp, "tsconfig.json")}" --listFiles`, {
+    encoding: "utf8",
+    maxBuffer: 256 * 1024 * 1024,
+    cwd: appRoot,
+  })
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((p) => p.startsWith(pkgRoot));
 
-writeFileSync(path.join(appRoot, "public/typings-bundle.json"), JSON.stringify(bundle));
-rmSync(tmp, { recursive: true, force: true });
+  for (const abs of listed) {
+    const rel = "node_modules/@wunk/lb-script-api-types/" + path.relative(pkgRoot, abs);
+    const content = readFileSync(abs, "utf8");
+    bundle[rel] = content;
+    bytes += content.length;
+  }
+  bundle["node_modules/@wunk/lb-script-api-types/package.json"] = readFileSync(path.join(pkgRoot, "package.json"), "utf8");
+  writeFileSync(path.join(appRoot, "public/typings-bundle.json"), JSON.stringify(bundle));
+} finally {
+  rmSync(tmp, { recursive: true, force: true }); // always clean the temp dir, even on tsc error
+}
 console.log(`typings-bundle.json: ${Object.keys(bundle).length} files, ${(bytes / 1024 / 1024).toFixed(2)} MB`);

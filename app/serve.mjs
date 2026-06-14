@@ -12,7 +12,9 @@ export function createServer() {
     try {
       let rel = decodeURIComponent(req.url.split("?")[0]);
       if (rel === "/") rel = "/index.html";
-      const data = await readFile(path.join(root, rel));
+      const full = path.normalize(path.join(root, rel));
+      if (full !== root && !full.startsWith(root + path.sep)) { res.writeHead(403).end("forbidden"); return; } // no traversal
+      const data = await readFile(full);
       res.writeHead(200, { "content-type": MIME[path.extname(rel)] || "application/octet-stream" });
       res.end(data);
     } catch {

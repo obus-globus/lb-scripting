@@ -87,8 +87,26 @@ Then `.script reload` (or restart) and `.ide`. (See `release/INSTALL.txt`.)
   Ctrl/Cmd shortcuts to the page and that `Esc` reaches Monaco (we set
   `shouldCloseOnEsc → false` so Esc drives the editor's find widget; close via
   `.ide close` / the editor's Hide button → `/api/close`).
-- The server binds to `127.0.0.1` only. `/api/load` writes + runs a script on the
-  user's machine — same trust model as `.script load`, user-initiated.
+## Security
+
+`/api/load` writes+runs a script and `/api/repl` evals code in the client — so the
+server is locked down beyond just binding `127.0.0.1` (which alone does NOT stop a
+malicious web page you visit from POSTing to localhost):
+
+- A **per-session token** is minted at startup and embedded in the editor URL
+  (`?token=…`). Every `/api/*` route requires it — as an `X-IDE-Token` **custom
+  header** (which forces a CORS preflight that fails cross-origin), or as
+  `?token=` for the SSE stream (EventSource can't set headers).
+- An **`Origin` allow-list** (`http://127.0.0.1:<port>` / `localhost`) is enforced
+  on top.
+- Static editor file serving is **canonicalized + prefix-checked** (no `..`
+  traversal); script filenames are sanitized to a single safe segment.
+- `runOnMain` has a **timeout** so a stalled MC thread can't hang/leak handler
+  threads.
+
+A cross-origin page therefore can't read the token, can't set the custom header
+without a (failing) preflight, and fails the Origin check — so it can't drive the
+server. Still user-initiated and local-only by design.
 
 ## Layout
 

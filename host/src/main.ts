@@ -11,7 +11,7 @@
 // (copy the app/dist contents there — see host/README.md). Then `.ide`.
 
 import { openEditorScreen, closeEditorScreen } from "./cef";
-import { startServer } from "./server";
+import { startServer, serverToken } from "./server";
 import { scriptsRoot, unloadByName } from "./scriptLoader";
 
 const PORT = 8791;                       // localhost only
@@ -33,7 +33,7 @@ function ensureServer(): boolean {
 }
 function openIde(): void {
   if (!ensureServer()) { Client.displayChatMessage("§c[ScriptIDE] could not start the local server."); return; }
-  const url = BASE_URL + "?opacity=" + OPACITY.get();
+  const url = BASE_URL + "?opacity=" + OPACITY.get() + "&token=" + serverToken();
   if (!openEditorScreen(url, BLUR.get())) Client.displayChatMessage("§c[ScriptIDE] could not open the CEF editor (LB browser backend unavailable).");
 }
 

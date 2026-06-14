@@ -156,7 +156,7 @@ export function readScript(name: string): string | null {
   try {
     const root = scriptsRoot(); if (!root) return null;
     const fname = (name || "").replace(/[^a-z0-9._-]/gi, "_");
-    if (!fname) return null;
+    if (!fname || /^\.+$/.test(fname)) return null; // no empty / dot-only (parent-dir) names
     const Files = T("java.nio.file.Files"); const Paths = T("java.nio.file.Paths");
     if (!Files || !Paths) return null;
     const p = (Paths.get as (a: string, b: string) => unknown)(root, fname);

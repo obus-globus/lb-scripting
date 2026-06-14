@@ -36,7 +36,7 @@ function lbRoot(): string | null {
   try { return String(((Client as unknown as { configSystem: { rootFolder: { getAbsolutePath(): unknown } } }).configSystem.rootFolder.getAbsolutePath())); } catch { return null; }
 }
 
-interface Req { method: string; path: string; query: Record<string, string>; body: string }
+interface Req { method: string; path: string; query: Record<string, string>; body: string; headers: Record<string, string> }
 function readRequest(ins: { read(): number; readNBytes(n: number): unknown }): Req | null {
   try {
     const BAOS = T("java.io.ByteArrayOutputStream");
@@ -58,20 +58,23 @@ function readRequest(ins: { read(): number; readNBytes(n: number): unknown }): R
     const method = (first[0] ?? "GET").toUpperCase();
     const rawPath = first[1] ?? "/";
     let contentLength = 0;
+    const headers: Record<string, string> = {};
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i] ?? ""; const c = line.indexOf(":"); if (c < 0) continue;
-      if (line.slice(0, c).trim().toLowerCase() === "content-length") contentLength = parseInt(line.slice(c + 1).trim(), 10) || 0;
+      const k = line.slice(0, c).trim().toLowerCase(); const v = line.slice(c + 1).trim();
+      headers[k] = v;
+      if (k === "content-length") contentLength = parseInt(v, 10) || 0;
     }
     const qm = rawPath.indexOf("?");
     const path = qm < 0 ? rawPath : rawPath.slice(0, qm);
     const query: Record<string, string> = {};
     if (qm >= 0) for (const kv of rawPath.slice(qm + 1).split("&")) { const eq = kv.indexOf("="); if (eq < 0) continue; try { query[decodeURIComponent(kv.slice(0, eq))] = decodeURIComponent(kv.slice(eq + 1)); } catch { /* */ } }
     let body = "";
-    if (contentLength > 0 && contentLength < 32 * 1024 * 1024) {
+    if (contentLength > 0 && contentLength < 8 * 1024 * 1024) {
       const bb = ins.readNBytes(contentLength);
       body = String(new (T("java.lang.String") as unknown as new (b: unknown, cs: string) => unknown)(bb, "UTF-8"));
     }
-    return { method, path, query, body };
+    return { method, path, query, body, headers };
   } catch { return null; }
 }
 
@@ -85,19 +88,28 @@ function writeText(outs: { write(b: unknown): void; flush(): void }, code: numbe
   const b = jbytes(body); writeResp(outs, code, reason, ctype, b, (b as { length: number }).length);
 }
 
-/** Run fn on the MC thread and block (UnsafeThread handler) for its result. */
+/** Run fn on the MC thread and block (UnsafeThread handler) for its result,
+ *  with a timeout so a stalled MC thread can't hang/leak the handler thread. */
 function runOnMain<R>(fn: () => R, fallback: R): R {
   try {
     const Latch = Topt("java.util.concurrent.CountDownLatch");
+    const TimeUnit = Topt("java.util.concurrent.TimeUnit");
     const m = mc as unknown as { execute?(r: () => void): void };
-    if (!Latch || typeof m.execute !== "function") { return fn(); } // sim/no-exec: run inline
-    const latch = new (Latch as unknown as new (n: number) => { countDown(): void; await(): void })(1);
+    if (!Latch || !TimeUnit || typeof m.execute !== "function") { return fn(); } // sim/no-exec: run inline
+    const latch = new (Latch as unknown as new (n: number) => { countDown(): void; await(t: number, u: unknown): boolean })(1);
     let out: R = fallback;
     m.execute(() => { try { out = fn(); } catch { /* */ } finally { latch.countDown(); } });
-    latch.await();
-    return out;
+    const done = latch.await(15, (TimeUnit as unknown as { SECONDS: unknown }).SECONDS);
+    return done ? out : fallback;
   } catch { return fallback; }
 }
+
+// Per-session token: minted at startServer, embedded in the editor URL, and
+// required (as a custom header, or query param for the SSE stream) on every
+// /api/* route. A custom header forces a CORS preflight that fails cross-origin,
+// so a malicious web page can't drive the localhost server (see README/security).
+let TOKEN = "";
+export function serverToken(): string { return TOKEN; }
 
 export interface ServerOpts { port: number; editorDirName: string; onClose: () => void }
 
@@ -130,6 +142,15 @@ export function startServer(opts: ServerOpts): boolean {
   const root = lbRoot();
   if (!root) return false;
   ensureLogStream();
+  if (!TOKEN) { try { TOKEN = String((T("java.util.UUID") as unknown as { randomUUID(): { toString(): unknown } }).randomUUID().toString()).replace(/-/g, ""); } catch { TOKEN = "t" + Date.now().toString(36) + Math.random().toString(36).slice(2); } }
+  const PORT = opts.port;
+  const authed = (req: Req): boolean => {
+    const t = req.headers["x-ide-token"] || req.query.token || "";
+    if (t !== TOKEN) return false;
+    const o = req.headers["origin"];
+    if (o && o !== "http://127.0.0.1:" + PORT && o !== "http://localhost:" + PORT) return false;
+    return true;
+  };
   const Paths = Topt("java.nio.file.Paths"); const Files = Topt("java.nio.file.Files");
   if (!Paths || !Files) return false;
   const get = (...p: string[]): unknown => (Paths.get as (a: string, ...r: string[]) => unknown)(p[0], ...p.slice(1));
@@ -137,17 +158,20 @@ export function startServer(opts: ServerOpts): boolean {
   const projDir = get(root, "lb-ide", "projects");
   try { (Files.createDirectories as (p: unknown) => unknown)(projDir); } catch { /* */ }
 
+  const editorDirNorm = (editorDir as unknown as { normalize(): { startsWith(p: unknown): boolean } }).normalize();
   const serveFile = (outs: { write(b: unknown): void; flush(): void }, rel: string): void => {
     try {
       let r = rel.replace(/^\/+/, "");
       if (r === "" || r.endsWith("/")) r += "index.html";
-      if (r.indexOf("..") >= 0) { writeText(outs, 400, "Bad Request", MIME.txt, "bad path"); return; }
       const ext = (r.split(".").pop() ?? "").toLowerCase();
       const mime = MIME[ext] ?? "application/octet-stream";
       let fp = editorDir as { resolve(s: string): unknown };
       for (const seg of r.split("/").filter((x) => x.length)) fp = fp.resolve(seg) as { resolve(s: string): unknown };
-      if (!(Files.exists as (p: unknown) => boolean)(fp)) { writeText(outs, 404, "Not Found", MIME.txt, "404"); return; }
-      const bytes = (Files.readAllBytes as (p: unknown) => unknown)(fp);
+      // canonicalize and verify the result is still inside editorDir (no traversal)
+      const norm = (fp as unknown as { normalize(): { startsWith(p: unknown): boolean } }).normalize();
+      if (!norm.startsWith(editorDirNorm)) { writeText(outs, 403, "Forbidden", MIME.txt, "forbidden"); return; }
+      if (!(Files.exists as (p: unknown) => boolean)(norm)) { writeText(outs, 404, "Not Found", MIME.txt, "404"); return; }
+      const bytes = (Files.readAllBytes as (p: unknown) => unknown)(norm);
       writeResp(outs, 200, "OK", mime, bytes, (bytes as { length: number }).length);
     } catch { writeText(outs, 500, "Error", MIME.txt, "read error"); }
   };
@@ -167,6 +191,9 @@ export function startServer(opts: ServerOpts): boolean {
       const { method, body } = req; const path = req.path;
 
       if (method === "OPTIONS") { writeText(outs, 204, "No Content", MIME.txt, ""); sock.close(); return; }
+      // All /api/* routes require the session token (custom header, or ?token=
+      // for the SSE stream). Blocks cross-origin web pages from driving the server.
+      if (path.indexOf("/api/") === 0 && !authed(req)) { writeText(outs, 403, "Forbidden", MIME.json, JSON.stringify({ ok: false, error: "forbidden" })); sock.close(); return; }
       if (path === "/api/ping") { writeText(outs, 200, "OK", MIME.json, JSON.stringify({ ok: true, root: scriptsRoot() })); sock.close(); return; }
       if (method === "GET" && path === "/api/repl/stream") {
         // Server-Sent Events: keep the socket open, register it, DON'T close it.
