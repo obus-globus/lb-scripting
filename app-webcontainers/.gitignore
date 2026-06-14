@@ -1,9 +1,0 @@
-node_modules/
-package-lock.json
-# generated
-public/typings-bundle.json
-public/webcontainer-api.js
-# dev symlink
-public/vs
-# assembled static deploy
-dist/
