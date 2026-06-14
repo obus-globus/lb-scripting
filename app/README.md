@@ -22,8 +22,10 @@ orchestration / Kubernetes / licensing baggage of the server-side options — se
 ✓ two-tier tabs: PROJECT tabs on top, OPEN-FILE (editor) tabs below — open
     files from the tree, switch/close tabs (close keeps the file)
 ✓ multiple projects in a tab bar, each its own files, persisted independently
-✓ "+ new" template picker, seeded from the real LB templates (full src/ trees):
-    default-ts · plain-js · starter-ts · inject-ts (lb-inject)
+✓ "+ new" picker grouped into CATEGORIES (one per template):
+    each category = a "Blank project" (just the template's main, no examples)
+    + one project per example script (that template seeded with the example)
+    categories: default-ts · plain-js · starter-ts · inject-ts (lb-inject)
 ✓ multi-file projects with a collapsible FOLDER TREE (create/delete files +
     folders at any depth); cross-folder ./imports resolve & inline in the build
 ✓ "show supporting files" toggle (eye icon) — reveals the template's build

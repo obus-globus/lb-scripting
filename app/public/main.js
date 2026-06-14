@@ -28,7 +28,7 @@ async function dbPut(store, key, val) { const db = await idb(); return new Promi
 async function dbDel(store, key) { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction(store, "readwrite").objectStore(store).delete(key); t.onsuccess = () => res(); t.onerror = () => rej(t.error); }); }
 
 // ---------------------------------------------------------------- state
-let TEMPLATES = [];
+let CATEGORIES = [];
 let INJECT_DTS = "";
 let injectBundle = null; // lazily fetched lb-inject runtime
 let baseExtraLibs = [];
@@ -228,13 +228,16 @@ async function loadProject(id) {
   renderTabs();
   return true;
 }
-function templateById(tid) { return TEMPLATES.find((t) => t.id === tid) || TEMPLATES[0]; }
-async function createProject(templateId, opts = {}) {
-  const t = templateById(templateId);
+function categoryById(cid) { return CATEGORIES.find((c) => c.id === cid) || CATEGORIES[0]; }
+async function createProject(catId, exampleId, opts = {}) {
+  const cat = categoryById(catId);
+  const ex = exampleId ? cat.examples.find((e) => e.id === exampleId) : null;
+  const srcFiles = ex ? ex.files : cat.base.files;
   const n = meta.ids.filter((id) => id.startsWith("p-")).length + 1;
-  const entry = "main.ts" in t.files ? "main.ts" : "main.js" in t.files ? "main.js" : Object.keys(t.files)[0];
-  const files = { ...JSON.parse(JSON.stringify(t.files)), ...JSON.parse(JSON.stringify(t.aux || {})) };
-  proj = { id: uid(), name: opts.name || t.name + " " + n, templateId: t.id, files, aux: Object.keys(t.aux || {}), folders: [], openTabs: [entry], active: entry, updatedAt: Date.now() };
+  const entry = "main.ts" in srcFiles ? "main.ts" : "main.js" in srcFiles ? "main.js" : Object.keys(srcFiles)[0];
+  const files = { ...JSON.parse(JSON.stringify(srcFiles)), ...JSON.parse(JSON.stringify(cat.aux || {})) };
+  const name = opts.name || (ex ? cat.name + " — " + ex.name : cat.name + " " + n);
+  proj = { id: uid(), name, templateId: cat.id, files, aux: Object.keys(cat.aux || {}), folders: [], openTabs: [entry], active: entry, updatedAt: Date.now() };
   meta.ids.push(proj.id); meta.current = proj.id;
   await saveProject(); await saveMeta();
   disposeModels();
@@ -280,11 +283,17 @@ async function hydrateTabNames() {
 }
 function showTemplateMenu() {
   const menu = $("tmplMenu"); menu.innerHTML = "";
-  for (const t of TEMPLATES) {
-    const item = document.createElement("div"); item.className = "item";
-    item.innerHTML = "<b>" + t.name + "</b><span>" + t.description + "</span>";
-    item.onclick = () => { menu.style.display = "none"; createProject(t.id); };
+  const addItem = (title, sub, indent, onClick) => {
+    const item = document.createElement("div"); item.className = "item" + (indent ? " sub" : "");
+    item.innerHTML = "<b>" + title + "</b>" + (sub ? "<span>" + sub + "</span>" : "");
+    item.onclick = () => { menu.style.display = "none"; onClick(); };
     menu.appendChild(item);
+  };
+  for (const cat of CATEGORIES) {
+    const head = document.createElement("div"); head.className = "cat"; head.textContent = cat.name;
+    menu.appendChild(head);
+    addItem("Blank project", cat.description, false, () => createProject(cat.id));
+    for (const ex of cat.examples) addItem(ex.name, "", true, () => createProject(cat.id, ex.id));
   }
   if (bridgeOn) {
     const sep = document.createElement("div"); sep.className = "sep"; menu.appendChild(sep);
@@ -441,8 +450,8 @@ function download() { if (!lastBuild) return; const blob = new Blob([lastBuild.c
 // ---------------------------------------------------------------- init
 require(["vs/editor/editor.main"], async () => {
   setStatus("loading templates + typings…");
-  [TEMPLATES, INJECT_DTS] = await Promise.all([
-    fetch("templates.json").then((r) => r.json()).then((d) => d.templates),
+  [CATEGORIES, INJECT_DTS] = await Promise.all([
+    fetch("templates.json").then((r) => r.json()).then((d) => d.categories),
     fetch("lb-inject.d.ts").then((r) => r.text()),
   ]);
   const bundle = await fetch("typings-bundle.json").then((r) => r.json());
@@ -570,11 +579,12 @@ require(["vs/editor/editor.main"], async () => {
   $("share").onclick = shareProject;
 
   setStatus("ready");
-  log("ready — " + meta.ids.length + " project(s), " + TEMPLATES.length + " templates", "d");
+  log("ready — " + meta.ids.length + " project(s), " + CATEGORIES.length + " templates", "d");
 
   window.__ide = {
     ready: true,
-    templates: () => TEMPLATES.map((t) => t.id),
+    templates: () => CATEGORIES.map((t) => t.id),
+    categories: () => CATEGORIES.map((c) => ({ id: c.id, name: c.name, baseFiles: Object.keys(c.base.files), examples: c.examples.map((e) => ({ id: e.id, name: e.name, files: Object.keys(e.files) })) })),
     listProjects: () => meta.ids.slice(),
     current: () => ({ id: proj.id, name: proj.name, templateId: proj.templateId }),
     listFiles: () => Object.keys(proj.files),
@@ -586,7 +596,7 @@ require(["vs/editor/editor.main"], async () => {
     treeLabels: () => [...document.querySelectorAll("#files .tv-row .nm")].map((n) => n.textContent),
     setShowAux: (v) => { showAux = !!v; localStorage.setItem("lb-ide:showAux", showAux ? "1" : "0"); $("toggleAux").classList.toggle("on", showAux); renderFiles(); },
     diagnosticsFor: async (path) => { const m = ensureModel(path); const gw = await monaco.languages.typescript.getTypeScriptWorker(); const c = await gw(m.uri); const u = m.uri.toString(); const ds = [...(await c.getSyntacticDiagnostics(u)), ...(await c.getSemanticDiagnostics(u))]; return ds.map((d) => ({ code: d.code })); },
-    createProject: (tid) => createProject(tid),
+    createProject: (cid, exId) => createProject(cid, exId),
     switchProject: (id) => loadProject(id),
     closeProject: (id) => closeProject(id),
     setActiveValue: (v) => editor.getModel().setValue(v),
