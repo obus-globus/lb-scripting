@@ -106,10 +106,38 @@ Two findings that de-risk the Monaco path:
 2. **The 96 MB package must be sliced to its closure** (~1.2 MB gzipped per
    script) before shipping — `gen-bundle.mjs` does this via `tsc --listFiles`.
 
-**Remaining unknowns for a real product:** the in-browser **build** step
-(esbuild-wasm + a virtual-FS resolve plugin for `@wunk/...`) and per-tab
-**persistence** (IndexedDB / File System Access API). Neither is a research risk
-— both are known-feasible engineering.
+## Spike: in-browser build proven (✅ verified headless)
+
+[`spikes/esbuild-wasm-build/`](spikes/esbuild-wasm-build/) — `esbuild-wasm`
+bundles a multi-file project into the downloadable `.mjs` artifact, in-tab,
+verified headless (`node verify.mjs`):
+
+```
+[ts] multi-file TS → 460 B single .mjs    [js] multi-file JS → 347 B single .mjs
+  ✓ local helper inlined   ✓ type-only @wunk import erased
+  ✓ no residual import/require (self-contained ESM)
+  ✓ ambient globals (registerScript/…) preserved as runtime free-references
+```
+
+A small virtual-FS esbuild plugin serves the in-memory files; this mirrors the
+template's Node `scripts/build.mjs`, moved into the browser. esbuild doesn't
+type-check (Monaco does that) — together they cover the whole author→check→build
+flow client-side.
+
+## Status: the browser-only stack is fully validated
+
+Both engineering unknowns from the research are now proven end-to-end, zero
+backend, per-tab isolated:
+
+```
+type-check + autocomplete (TS and // @ts-check JS) ─ spikes/monaco-typings/   ✅
+build → downloadable .mjs (TS and JS)              ─ spikes/esbuild-wasm-build/ ✅
+```
+
+The only remaining piece is **persistence** (IndexedDB / File System Access API)
+— a standard browser API, not a research risk. What stays intrinsically out of
+browser scope: real `npm install`, a terminal, and the live-client / `:9229`
+GraalJS debug loop (keep `code-server` / a local CLI for that tier).
 
 ## Layout
 
