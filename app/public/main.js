@@ -331,6 +331,44 @@ async function openInstalledScriptProject(filename, content) {
 const openAsProject = openInstalledScriptProject;
 document.addEventListener("click", (e) => { const m = $("tmplMenu"); if (m.style.display === "block" && !m.contains(e.target) && e.target.id !== "newProj") m.style.display = "none"; });
 
+// ---------------------------------------------------------------- share links
+// Encode the current project into the URL hash (#share=<gzip+base64url>) so a
+// link reconstructs it — no backend. Supporting (aux) files are omitted (they're
+// template scaffolding, not needed to edit/build), keeping links small.
+const b64uEnc = (bytes) => { let s = ""; for (const b of bytes) s += String.fromCharCode(b); return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); };
+const b64uDec = (str) => { const s = atob(str.replace(/-/g, "+").replace(/_/g, "/")); const out = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i); return out; };
+async function gz(bytes) { return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer()); }
+async function gunzip(bytes) { return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer()); }
+
+async function encodeShare(p) {
+  const files = {}; for (const path of Object.keys(p.files)) if (!(p.aux || []).includes(path)) files[path] = p.files[path];
+  const payload = { v: 1, name: p.name, templateId: p.templateId, files, folders: p.folders || [], openTabs: (p.openTabs || []).filter((t) => t in files), active: files[p.active] ? p.active : Object.keys(files)[0] };
+  const data = new TextEncoder().encode(JSON.stringify(payload));
+  return "share=" + b64uEnc(await gz(data));
+}
+async function decodeShare(hash) {
+  const raw = hash.slice("share=".length);
+  const json = new TextDecoder().decode(await gunzip(b64uDec(raw)));
+  return JSON.parse(json);
+}
+async function shareProject() {
+  try {
+    const frag = await encodeShare(proj);
+    const url = location.origin + location.pathname + "#" + frag;
+    try { await navigator.clipboard.writeText(url); log("share link copied to clipboard (" + url.length + " chars)", "s"); }
+    catch { log("share link (copy it): " + url, "d"); }
+    return url;
+  } catch (e) { log("share failed: " + (e && e.message || e), "e"); }
+}
+async function importShared(payload) {
+  proj = { id: uid(), name: payload.name || "Shared", templateId: payload.templateId || "shared", files: payload.files || {}, aux: [], folders: payload.folders || [], openTabs: (payload.openTabs && payload.openTabs.length ? payload.openTabs : [Object.keys(payload.files || {})[0]]).filter(Boolean), active: payload.active || Object.keys(payload.files || {})[0], updatedAt: Date.now() };
+  meta.ids.push(proj.id); meta.current = proj.id;
+  await saveProject(); await saveMeta();
+  disposeModels(); for (const path of Object.keys(proj.files)) if (!isAux(path)) ensureModel(path);
+  location.hash = proj.id; openFile(proj.active); renderTabs();
+  log("imported shared project: " + proj.name, "s");
+}
+
 function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(() => { saveProject(); saveMeta(); }, 300); }
 async function saveProject() { if (!proj) return; proj.updatedAt = Date.now(); await dbPut(P_STORE, proj.id, proj); if (bridgeOn) bridgeSave(proj); }
 // Mirror saves to the in-client host so projects persist on disk (CEF IndexedDB
@@ -429,7 +467,11 @@ require(["vs/editor/editor.main"], async () => {
 
   meta = (await dbGet(M_STORE, "open")) || { ids: [], current: null };
   const wanted = location.hash.replace(/^#/, "");
-  if (wanted && meta.ids.includes(wanted)) await loadProject(wanted);
+  if (wanted.startsWith("share=")) {
+    try { await importShared(await decodeShare(wanted)); }
+    catch { log("invalid share link", "e"); if (!(meta.ids.length && (await loadProject(meta.ids[0])))) await createProject("default-ts"); }
+  }
+  else if (wanted && meta.ids.includes(wanted)) await loadProject(wanted);
   else if (meta.current && meta.ids.includes(meta.current) && (await loadProject(meta.current))) {}
   else if (meta.ids.length && (await loadProject(meta.ids[0]))) {}
   else await createProject("default-ts");
@@ -477,6 +519,7 @@ require(["vs/editor/editor.main"], async () => {
   $("toggleAux").onclick = () => { showAux = !showAux; localStorage.setItem("lb-ide:showAux", showAux ? "1" : "0"); syncAuxBtn(); renderFiles(); };
   syncAuxBtn();
   $("rename").onclick = async () => { const n = prompt("Project name:", proj.name); if (!n) return; proj.name = n; await saveProject(); renderTabs(); };
+  $("share").onclick = shareProject;
 
   setStatus("ready");
   log("ready — " + meta.ids.length + " project(s), " + TEMPLATES.length + " templates", "d");
@@ -501,6 +544,8 @@ require(["vs/editor/editor.main"], async () => {
     setActiveValue: (v) => editor.getModel().setValue(v),
     diagnostics: async () => { const m = editor.getModel(); const gw = await monaco.languages.typescript.getTypeScriptWorker(); const c = await gw(m.uri); const u = m.uri.toString(); const ds = [...(await c.getSyntacticDiagnostics(u)), ...(await c.getSemanticDiagnostics(u))]; return ds.map((d) => ({ code: d.code, message: typeof d.messageText === "string" ? d.messageText : d.messageText.messageText })); },
     build: async () => { await build(); return lastBuild; },
+    share: () => shareProject(),
+    activeContent: () => editor.getModel().getValue(),
     reloadMeta: async () => await dbGet(M_STORE, "open"),
     getProject: async (id) => await dbGet(P_STORE, id),
   };
