@@ -40,22 +40,32 @@
     #tmplMenu .item b { font-size:13px; } #tmplMenu .item span { display:block; font-size:11px; color:#9a9a9a; }
     #tmplMenu .item:hover span { color:#dde; }
     #mid { display:grid; grid-template-columns:200px 1fr; min-height:0; }
-    #side { background:var(--bg2); border-right:1px solid #111; overflow:auto; }
-    #sideHead { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:7px 8px 7px 10px; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:#888; position:sticky; top:0; background:var(--bg2); }
-    #sideHead .sideActs { display:flex; gap:4px; }
-    #sideHead button { font:inherit; font-size:11px; text-transform:none; letter-spacing:0; background:#3a3a3a; color:#ddd; border:0; border-radius:4px; padding:3px 7px; cursor:pointer; }
-    #sideHead button:hover { background:var(--acc2); color:#fff; }
-    .file { padding:4px 8px; font-size:13px; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:6px; }
-    .file:hover { background:var(--bg3); }
-    .file.active { background:var(--acc); color:#fff; }
-    .file .fname { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .file.folder .fname { color:#cda; }
-    .file .acts { display:flex; gap:4px; opacity:0; }
-    .file:hover .acts { opacity:1; }
-    .file .x { opacity:.5; }
-    .file:hover > .x { opacity:.5; }
-    .file .x:hover { opacity:1; color:var(--err); }
-    .file .x.add:hover { color:var(--ok); }
+    #side { background:#252526; border-right:1px solid #111; overflow:auto; font-size:13px; }
+    #side::-webkit-scrollbar { width:10px; } #side::-webkit-scrollbar-thumb { background:#424242; }
+    #sideHead { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:8px 8px 6px 12px; font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:#bbb; position:sticky; top:0; background:#252526; z-index:2; }
+    #sideHead .sideActs { display:flex; gap:1px; opacity:0; transition:opacity .1s; }
+    #side:hover #sideHead .sideActs { opacity:1; }
+    #sideHead button { font:inherit; background:transparent; color:#c5c5c5; border:0; border-radius:5px; width:22px; height:22px; padding:0; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+    #sideHead button:hover { background:#ffffff1a; }
+    #sideHead button svg { width:16px; height:16px; }
+    /* VS Code-style tree rows */
+    .tv-row { display:flex; align-items:center; height:22px; padding-right:6px; cursor:pointer; color:#cccccc; white-space:nowrap; user-select:none; }
+    .tv-row:hover { background:#2a2d2e; }
+    .tv-row.active { background:#094771; }
+    #side:focus-within .tv-row.active { background:#094771; }
+    .tv-row .ig { width:8px; align-self:stretch; flex:none; box-shadow: inset 1px 0 0 #ffffff12; }
+    .tv-row .tw { width:16px; height:22px; flex:none; display:flex; align-items:center; justify-content:center; color:#c5c5c5; }
+    .tv-row .tw svg { width:16px; height:16px; transition:transform .08s ease; }
+    .tv-row .tw.closed svg { transform:rotate(-90deg); }
+    .tv-row .ic { width:16px; height:16px; flex:none; margin-right:5px; display:flex; align-items:center; justify-content:center; }
+    .tv-row .ic svg { width:16px; height:16px; }
+    .tv-row .nm { overflow:hidden; text-overflow:ellipsis; }
+    .tv-row.root .nm { text-transform:uppercase; font-size:11px; letter-spacing:.5px; color:#bbb; font-weight:600; }
+    .tv-row .acts { margin-left:auto; display:flex; gap:1px; opacity:0; padding-left:6px; }
+    .tv-row:hover .acts { opacity:1; }
+    .tv-row .acts .b { width:20px; height:20px; display:flex; align-items:center; justify-content:center; color:#c5c5c5; border-radius:5px; }
+    .tv-row .acts .b:hover { background:#ffffff1f; }
+    .tv-row .acts .b svg { width:15px; height:15px; }
     #editor { min-width:0; }
     #log { height:150px; background:#141414; border-top:1px solid #111; overflow:auto; padding:8px 10px; font-size:12px; white-space:pre-wrap; }
     #log .e { color:var(--err); }
@@ -79,10 +89,17 @@
     <div id="mid">
       <div id="side">
         <div id="sideHead">
-          <span>Files</span>
+          <span>Explorer</span>
           <span class="sideActs">
-            <button id="addFile" title="New file">＋ file</button>
-            <button id="addFolder" title="New folder">＋ folder</button>
+            <button id="addFile" title="New File">
+              <svg viewBox="0 0 16 16"><path fill="currentColor" d="M9.5 1.1l3.4 3.4.1.4v9.6l-.5.5h-9l-.5-.5v-13l.5-.5h5.1l.4.1zM9 2H4v12h8V5H9.5L9 4.5V2zm1 0v2h2l-2-2zM8 7H7v2H5v1h2v2h1v-2h2V9H8V7z"/></svg>
+            </button>
+            <button id="addFolder" title="New Folder">
+              <svg viewBox="0 0 16 16"><path fill="currentColor" d="M14.5 4H8.7L7.5 2.6 7.1 2.5H1.5l-.5.5v10l.5.5h13l.5-.5V4.5l-.5-.5zM14 13H2V3.5h4.8l1.2 1.4.4.1H14V13zm-3.5-5H9V6.5H8V8H6.5v1H8v1.5h1V9h1.5V8z"/></svg>
+            </button>
+            <button id="collapseAll" title="Collapse Folders">
+              <svg viewBox="0 0 16 16"><path fill="currentColor" d="M9 9H4V8h5v1zm0-3H4V5h5v1zM3 2.5l.5-.5h9l.5.5v3h-1V3H3.5L3 2.5zm10 11l-.5.5h-9l-.5-.5v-3h1V13h9.5l-.5.5zM4 11h5v-1H4v1z"/></svg>
+            </button>
           </span>
         </div>
         <div id="files"></div>

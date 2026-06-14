@@ -136,32 +136,77 @@ function addFolderAt(dirPath) {
   collapsed.delete(dirPath); renderFiles(); scheduleSave();
 }
 
+// --- VS Code-ish icons (monochrome SVG, currentColor unless a fill is given) --
+const SVG = {
+  chevron: '<svg viewBox="0 0 16 16"><path fill="currentColor" d="M5.7 6.2L8 8.5l2.3-2.3.7.7L8 9.9 5 6.9z"/></svg>',
+  folder: '<svg viewBox="0 0 16 16"><path fill="#c09553" d="M1.5 3h4l1.2 1.6H14.5l.5.5v7.9l-.5.5h-13l-.5-.5V3.5z"/></svg>',
+  addFile: '<svg viewBox="0 0 16 16"><path fill="currentColor" d="M9.5 1.1l3.4 3.4.1.4v9.6l-.5.5h-9l-.5-.5v-13l.5-.5h5.1l.4.1zM9 2H4v12h8V5H9.5L9 4.5V2zM8 7H7v2H5v1h2v2h1v-2h2V9H8V7z"/></svg>',
+  addFolder: '<svg viewBox="0 0 16 16"><path fill="currentColor" d="M14.5 4H8.7L7.5 2.6 7.1 2.5H1.5l-.5.5v10l.5.5h13l.5-.5V4.5l-.5-.5zM14 13H2V3.5h4.8l1.2 1.4.4.1H14V13zm-3.5-5H9V6.5H8V8H6.5v1H8v1.5h1V9h1.5V8z"/></svg>',
+  trash: '<svg viewBox="0 0 16 16"><path fill="currentColor" d="M10 3h3v1h-1v9.5l-.5.5h-7l-.5-.5V4H3V3h3V2l.5-.5h3l.5.5V3zM5 4v9h6V4H5zm2 1h1v7H7V5zm2 0h1v7H9V5z"/></svg>',
+};
+function fileIcon(name) {
+  const ext = name.slice(name.lastIndexOf(".") + 1);
+  const color = ext === "ts" ? "#4e9bd6" : ext === "js" ? "#cbcb41" : ext === "json" ? "#cbcb41" : ext === "md" ? "#519aba" : "#9aa0a6";
+  return `<svg viewBox="0 0 16 16"><path fill="${color}" d="M9.5 1H4l-.5.5v13l.5.5h9l.5-.5V5L9.5 1zM9 2.2L11.8 5H9V2.2z"/></svg>`;
+}
+function allDirPaths() {
+  const out = []; const walk = (n) => { for (const [, d] of n.dirs) { out.push(d.path); walk(d); } }; walk(buildTree()); return out;
+}
+
+function tvRow({ depth, twisty, iconHtml, label, isActive, isRoot, onClick, actions }) {
+  const row = document.createElement("div");
+  row.className = "tv-row" + (isActive ? " active" : "") + (isRoot ? " root" : "");
+  for (let i = 0; i < depth; i++) { const ig = document.createElement("span"); ig.className = "ig"; row.appendChild(ig); }
+  const tw = document.createElement("span"); tw.className = "tw" + (twisty === "closed" ? " closed" : "");
+  if (twisty) tw.innerHTML = SVG.chevron; row.appendChild(tw);
+  if (iconHtml) { const ic = document.createElement("span"); ic.className = "ic"; ic.innerHTML = iconHtml; row.appendChild(ic); }
+  const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = label; row.appendChild(nm);
+  if (actions && actions.length) {
+    const acts = document.createElement("span"); acts.className = "acts";
+    for (const a of actions) { const b = document.createElement("span"); b.className = "b"; b.title = a.title; b.innerHTML = a.icon; b.onclick = (e) => { e.stopPropagation(); a.run(); }; acts.appendChild(b); }
+    row.appendChild(acts);
+  }
+  row.onclick = onClick;
+  return row;
+}
+
 function renderFiles() {
   const wrap = $("files"); wrap.innerHTML = "";
-  const tree = buildTree();
+  const ROOT = "__ROOT__";
+  const rootClosed = collapsed.has(ROOT);
+  wrap.appendChild(tvRow({
+    depth: 0, twisty: rootClosed ? "closed" : "open", iconHtml: "", label: proj ? proj.name : "", isRoot: true,
+    onClick: () => { if (rootClosed) collapsed.delete(ROOT); else collapsed.add(ROOT); renderFiles(); },
+    actions: [
+      { title: "New File", icon: SVG.addFile, run: () => addFileAt("") },
+      { title: "New Folder", icon: SVG.addFolder, run: () => addFolderAt("") },
+    ],
+  }));
+  if (rootClosed) return;
+
   const render = (node, depth) => {
-    const pad = (d) => "calc(" + d + " * 12px + 8px)";
     for (const [name, dir] of [...node.dirs.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
       const isCol = collapsed.has(dir.path);
-      const row = document.createElement("div"); row.className = "file folder"; row.style.paddingLeft = pad(depth);
-      const label = document.createElement("span"); label.className = "fname"; label.textContent = (isCol ? "▸ " : "▾ ") + name + "/";
-      label.onclick = () => { if (isCol) collapsed.delete(dir.path); else collapsed.add(dir.path); renderFiles(); };
-      row.appendChild(label);
-      const acts = document.createElement("span"); acts.className = "acts";
-      const add = document.createElement("span"); add.className = "x add"; add.textContent = "＋"; add.title = "new file in " + dir.path; add.onclick = (e) => { e.stopPropagation(); addFileAt(dir.path); };
-      const del = document.createElement("span"); del.className = "x"; del.textContent = "✕"; del.title = "delete folder"; del.onclick = (e) => { e.stopPropagation(); if (confirm("Delete folder " + dir.path + " and its files?")) deleteFolder(dir.path); };
-      acts.append(add, del); row.appendChild(acts);
-      wrap.appendChild(row);
+      wrap.appendChild(tvRow({
+        depth, twisty: isCol ? "closed" : "open", iconHtml: SVG.folder, label: name,
+        onClick: () => { if (isCol) collapsed.delete(dir.path); else collapsed.add(dir.path); renderFiles(); },
+        actions: [
+          { title: "New File", icon: SVG.addFile, run: () => addFileAt(dir.path) },
+          { title: "New Folder", icon: SVG.addFolder, run: () => addFolderAt(dir.path) },
+          { title: "Delete", icon: SVG.trash, run: () => { if (confirm("Delete folder " + dir.path + " and its files?")) deleteFolder(dir.path); } },
+        ],
+      }));
       if (!isCol) render(dir, depth + 1);
     }
     for (const f of node.files.sort((a, b) => a.name.localeCompare(b.name))) {
-      const row = document.createElement("div"); row.className = "file" + (f.path === proj.active ? " active" : ""); row.style.paddingLeft = pad(depth);
-      const name = document.createElement("span"); name.className = "fname"; name.textContent = f.name; name.onclick = () => openFile(f.path); row.appendChild(name);
-      const x = document.createElement("span"); x.className = "x"; x.textContent = "✕"; x.onclick = (e) => { e.stopPropagation(); deleteFile(f.path); }; row.appendChild(x);
-      wrap.appendChild(row);
+      wrap.appendChild(tvRow({
+        depth, twisty: "", iconHtml: fileIcon(f.name), label: f.name, isActive: f.path === proj.active,
+        onClick: () => openFile(f.path),
+        actions: [{ title: "Delete", icon: SVG.trash, run: () => deleteFile(f.path) }],
+      }));
     }
   };
-  render(tree, 0);
+  render(buildTree(), 1);
 }
 
 // ---------------------------------------------------------------- projects
@@ -327,6 +372,7 @@ require(["vs/editor/editor.main"], async () => {
   $("download").onclick = download;
   $("addFile").onclick = () => addFileAt("");
   $("addFolder").onclick = () => addFolderAt("");
+  $("collapseAll").onclick = () => { for (const d of allDirPaths()) collapsed.add(d); renderFiles(); };
   $("rename").onclick = async () => { const n = prompt("Project name:", proj.name); if (!n) return; proj.name = n; await saveProject(); renderTabs(); };
 
   setStatus("ready");
