@@ -1,6 +1,6 @@
 name: deploy editor to Pages
 
-# Builds the static editor (apps/editor → dist/) and publishes it to GitHub
+# Builds the static editor (apps/editor -> dist/) and publishes it to GitHub
 # Pages. The editor is base-path-aware (document.baseURI), so it works under the
 # project subpath (/<repo>/). No COOP/COEP needed (esbuild-wasm, not WebContainers).
 
