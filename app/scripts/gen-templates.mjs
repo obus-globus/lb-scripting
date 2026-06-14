@@ -13,8 +13,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const app = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const SS = path.resolve(app, "..");
-const ROOT = path.resolve(SS, "..");
+// Template sources are VENDORED into the repo (app/vendor/templates) so the
+// build is self-contained (CI / fresh clone). The host example is the in-repo
+// host/. (Future: fetch templates from GitHub once those repos are public.)
+const VENDOR = path.join(app, "vendor/templates");
+const HOST = path.resolve(app, "../host");
 const read = (p) => readFileSync(p, "utf8");
 const slug = (s) => s.replace(/\.[a-z]+$/i, "").replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase();
 const isScript = (f) => /\.(ts|js)$/.test(f) && !f.endsWith(".d.ts");
@@ -29,8 +32,7 @@ function walkFiles(dir, base = dir) {
   return out;
 }
 
-function readAuxTree(templateDir) {
-  const root = path.join(ROOT, templateDir);
+function readAuxTree(root) {
   const want = (rel) =>
     rel === "package.json" || rel === "tsconfig.json" || rel === "jsconfig.json" ||
     rel === "README.md" || rel === "lbdev.config.example.json" ||
@@ -50,8 +52,8 @@ function readAuxTree(templateDir) {
   return out;
 }
 
-function buildCategory(id, name, lang, templateDir, description) {
-  const srcRoot = path.join(ROOT, templateDir, "src");
+function buildCategory(id, name, lang, baseDir, description) {
+  const srcRoot = path.join(baseDir, "src");
   const ext = lang === "js" ? "js" : "ts";
   // base = top-level src files (the template's own main), excluding examples/
   const base = {};
@@ -83,20 +85,20 @@ function buildCategory(id, name, lang, templateDir, description) {
       }
     }
   }
-  return { id, name, lang, description, base: { files: base }, aux: readAuxTree(templateDir), examples };
+  return { id, name, lang, description, base: { files: base }, aux: readAuxTree(baseDir), examples };
 }
 
 const categories = [
-  buildCategory("default-ts", "Minimal (TS)", "ts", "lb-web-ide/template", "Tiny typed script — registerScript + one event handler."),
-  buildCategory("plain-js", "Plain JS", "js", "lb-script-template-js", "No build step — // @ts-check'd JavaScript."),
-  buildCategory("starter-ts", "Starter (TS)", "ts", "lb-script-starter", "JumpLogger starter with a boolean setting."),
-  buildCategory("inject-ts", "Inject (TS)", "ts", "lb-inject-template", "Runtime bytecode injection via lb-inject."),
-  buildCategory("lb-ide-host", "LB Script IDE (host)", "ts", "lb-ide-explore/host", "The very script that opens this IDE in-game — multi-file, with an in-process HTTP server + CEF."),
+  buildCategory("default-ts", "Minimal (TS)", "ts", path.join(VENDOR, "default-ts"), "Tiny typed script — registerScript + one event handler."),
+  buildCategory("plain-js", "Plain JS", "js", path.join(VENDOR, "plain-js"), "No build step — // @ts-check'd JavaScript."),
+  buildCategory("starter-ts", "Starter (TS)", "ts", path.join(VENDOR, "starter-ts"), "JumpLogger starter with a boolean setting."),
+  buildCategory("inject-ts", "Inject (TS)", "ts", path.join(VENDOR, "inject-ts"), "Runtime bytecode injection via lb-inject."),
+  buildCategory("lb-ide-host", "LB Script IDE (host)", "ts", HOST, "The very script that opens this IDE in-game — multi-file, with an in-process HTTP server + CEF."),
 ];
 
 writeFileSync(path.join(app, "public/templates.json"), JSON.stringify({ categories }, null, 2));
-writeFileSync(path.join(app, "public/lb-inject.d.ts"), read(path.join(ROOT, "lb-inject-template/types/lb-inject.d.ts")));
-const bundlePath = path.join(ROOT, "lb-inject/dist/nf-inject-bundled-1.1.0.js");
+writeFileSync(path.join(app, "public/lb-inject.d.ts"), read(path.join(VENDOR, "inject-ts/types/lb-inject.d.ts")));
+const bundlePath = path.join(VENDOR, "inject-ts/vendor/lib/nf-inject-bundled-1.1.0.js");
 if (!existsSync(bundlePath)) throw new Error("missing " + bundlePath);
 writeFileSync(path.join(app, "public/lb-inject-bundled.js"), read(bundlePath));
 

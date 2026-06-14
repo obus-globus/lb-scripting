@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "inlineSourceMap": true,
+    "inlineSources": true,
+    "types": ["@wunk/lb-script-api-types/ambient"],
+    "noEmit": true
+  },
+  "include": ["src/**/*", "types/**/*"],
+  "exclude": ["dist", "node_modules", "vendor"]
+}

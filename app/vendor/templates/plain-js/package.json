@@ -1,0 +1,17 @@
+{
+  "name": "lb-script-template-js",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Minimal plain-JavaScript starter for a LiquidBounce (nextgen) script — no build step, full editor autocomplete from @wunk/lb-script-api-types.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p jsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@wunk/lb-script-api-types": "^0.38.4",
+    "typescript": "^5.4"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
