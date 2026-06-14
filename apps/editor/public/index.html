@@ -20,12 +20,18 @@
     html.translucent #side, html.translucent #sideHead { background-color: rgba(var(--glassrgb), var(--a, .85)) !important; }
     html.translucent .monaco-editor, html.translucent .monaco-editor-background,
     html.translucent .monaco-editor .margin { background:transparent !important; }
-    #app { display:grid; grid-template-rows:auto auto auto 1fr auto; height:100%; }
+    #app { display:grid; grid-template-rows:auto auto auto 1fr auto auto; height:100%; }
     #bar { display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg2); border-bottom:1px solid var(--border); font-size:13px; }
     #bar .spacer { flex:1; }
-    #ver { font-size:11px; color:var(--fgdim); margin-left:-2px; }
-    #ver a { color:var(--ok); text-decoration:none; }
-    #ver a:hover { text-decoration:underline; }
+    /* VS Code-style slim bottom status bar */
+    #statusbar { display:flex; align-items:center; gap:12px; height:22px; padding:0 10px; background:var(--acc); color:#fff; font-size:11px; line-height:22px; border-top:1px solid var(--border); white-space:nowrap; overflow:hidden; user-select:none; }
+    #statusbar .spacer { flex:1; }
+    #statusbar #status { color:#fff; opacity:.95; overflow:hidden; text-overflow:ellipsis; }
+    #statusbar .sb-item { display:flex; align-items:center; gap:5px; opacity:.95; }
+    #statusbar #ver { opacity:.95; }
+    #statusbar #ver a { color:#fff; text-decoration:underline; }
+    #statusbar #ver a:hover { opacity:.85; }
+    #statusbar #sbBridge::before { content:"●"; font-size:9px; color:#9be29b; }
     #bar button { font:inherit; background:var(--acc); color:#fff; border:0; border-radius:4px; padding:5px 10px; cursor:pointer; }
     #bar button:hover { background:var(--acc2); }
     #bar button.ghost { background:var(--bg3); color:var(--fg); }
@@ -113,10 +119,8 @@
   <div id="app">
     <div id="bar">
       <strong>LB Script IDE</strong>
-      <span id="ver" title="IDE version"></span>
       <select id="themeSel" title="editor theme"></select>
       <span class="spacer"></span>
-      <span id="status">booting…</span>
       <button id="rename" class="ghost">rename</button>
       <button id="share" class="ghost">share</button>
       <button id="build">build</button>
@@ -152,6 +156,12 @@
       <div id="editor"></div>
     </div>
     <div id="log"></div>
+    <div id="statusbar">
+      <span id="status">booting…</span>
+      <span id="sbBridge" class="sb-item" style="display:none">in-client</span>
+      <span class="spacer"></span>
+      <span id="ver" title="IDE version"></span>
+    </div>
   </div>
   <div id="tmplMenu"></div>
   <div id="tmplSub"></div>

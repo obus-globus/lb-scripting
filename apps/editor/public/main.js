@@ -641,6 +641,7 @@ require(["vs/editor/editor.main"], async () => {
       const r = await apiFetch("api/ping", { method: "GET" });
       if (!(r.ok && (await r.json()).ok)) return;
       bridgeOn = true;
+      $("sbBridge").style.display = "";
       $("runClient").style.display = ""; $("autoRun").style.display = ""; $("dbg").style.display = ""; $("replBtn").style.display = "";
       log("connected to LiquidBounce (in-client) — projects persist on disk; run/hot-reload/debug enabled", "d");
       // pull any projects saved on disk (durable across CEF sessions) into the tabs
