@@ -126,7 +126,7 @@ tsconfig — moduleResolution bundler, no paths mapping).
 
 ## 4. Current build state
 
-**Branch `feat/dual-mode-ide` @ `84257e3`** (off master, pushed to origin).
+**Branch `feat/dual-mode-ide` @ `ac87f4e`** (off master, pushed to origin).
 
 **Phase 1 DONE: `@lb-ide/core` extracted** (single-sourced LB pipeline; both modes
 consume it). Lean stayed green (headless `verify.mjs` passes after every step);
@@ -162,35 +162,52 @@ and a real copy in prod (`apps/editor/scripts/build-dist.mjs`). It's gitignored.
 `DEFAULT_BUILD` is duplicated in `main.js` (UI-authoritative) + `build.js`
 (runBuild fallback) — kept in sync via a code comment.
 
-**Untracked Phase-2 scaffold:** `apps/editor-heavy/lb-glue/` — a minimal web
-extension (`package.json` browser entry + `extension.js` registering
-`lb.buildAndRun`, auto-invoking on activation to surface a notification for
-headless verification). NOT yet committed; nothing modified.
+**Phase 2 DONE: heavy glue wired to `@lb-ide/core` + proven end-to-end.**
+`apps/editor-heavy/lb-glue/` is now a bundled web extension (`src/extension.js`
+→ `dist/extension.js` via `build.mjs`/node-esbuild; `vscode` external; `dist/`
+gitignored). On `lb.buildAndRun` it: reads the workspace sources, merges a
+per-project `lbbuild.config.json` over `DEFAULT_BUILD`, initializes esbuild-wasm
+**in-thread** from a bundled `esbuild.wasm` asset (`wasmModule`, no URL fetch / no
+nested worker — survives COEP `require-corp`), runs core's `runBuild`, then hands
+the `.mjs` to the host via core's `createBridge` (base/token from `lb.hostBase`/
+`lb.hostToken` settings; empty base = build-only). A `lb.selfTestOnStartup`
+setting (off by default) gates a headless auto-invoke. **Proven headful in the
+packaged `vscode-web` bundle under COI: barrel intellisense (type-error squiggle,
+Vec3 resolves) → build via core (154 B `.mjs`, byte-identical to the node
+reference) → bridge POST reaches a mock ScriptManager host with the correct
+`{name, mjs, X-IDE-Token}` (CORS preflight + CORP both satisfied).** Lean stayed
+green (`verify.mjs`); sub-agent review applied (config-honoring + structured
+esbuild errors + self-test gating). Commits `6e7e2c5`, `993b9dc`, `ac87f4e`.
+
+Reproduce: serve recipe in §3 (`--extensionDevelopmentPath apps/editor-heavy/lb-glue`,
+workspace = `/home/clawd/obus/vscode-build/lb-barrel` whose `.vscode/settings.json`
+sets `lb.hostBase`/`lb.hostToken`/`lb.selfTestOnStartup`); harness scripts live in
+`/home/clawd/obus/vscode-build/`: `probe-glue.mjs` (activation), `probe-e2e.mjs`
+(the 3-way proof), `mock-host.mjs` (the bridge-contract host on :9777).
 
 ---
 
 ## 5. Remaining phases + RESUME POINT
 
-**▶ RESUME HERE — Phase 2: heavy editor shell.** Target a runnable web-only heavy
-mode that: loads packaged `vscode-web` (static + COI), opens the workspace + feeds
-the barrel typings, and has a **thin glue web-extension** wiring VS Code's
-command/UI to `@lb-ide/core`'s `runBuild` + `bridge` (consumes core, never
-reimplements). Prove end-to-end headful: edit a script → barrel intellisense →
-build via core → reach the ScriptManager bridge contract.
+**▶ RESUME HERE — Phase 3: the runnable heavy SHELL + mode-switch/serving layer.**
+The glue↔core seam is proven; what's left to make heavy a *real, user-launchable
+mode* (today it's only exercised via `test-web` + the headless probes):
+1. **A serving layer** that hosts the static `vscode-web` bundle with the COI
+   headers (COOP same-origin + COEP require-corp), opens the user's project
+   workspace, and loads the glue extension — without `@vscode/test-web` (that's a
+   dev harness). Lean default / heavy opt-in; **separate origins/ports** to avoid
+   service-worker + COI coexistence issues. Decide how the heavy workspace + barrel
+   typings are provisioned (an in-browser FS seeded with the user's files + the
+   generated barrel).
+2. **Parameterize `gen-barrel.mjs`** (paths are hardcoded to the spike tree — see
+   §3) and wire the barrel generation into the heavy build/provisioning so a real
+   project gets `@wunk` typings.
+3. **Mode switch UI** from the lean editor (open-in-heavy) + carrying the project
+   across.
 
-Immediate next step (where we paused): **de-risk the glue seam** — confirm the
-scaffolded `apps/editor-heavy/lb-glue` extension ACTIVATES in the packaged bundle
-via `test-web --extensionDevelopmentPath` (serve recipe in §3; check for the
-`LB-GLUE-OK` notification toast in the page DOM). Then wire the glue to
-`@lb-ide/core` (import the ESM into the extension; **watch the esbuild-wasm-under-COI
-integration risk** — esbuild-wasm must initialize in the vscode web-extension worker
-under COEP `require-corp`). Reviewable steps; sub-agent review at the phase boundary.
-
-**Later phases:** mode-switch + serving layer (lean default / heavy opt-in,
-separate origins/ports to avoid service-worker + COI coexistence issues);
-parameterize `gen-barrel.mjs` + wire the barrel into the heavy build; (eventually,
-if in-client heavy is wanted) the pure-Java HttpServer + ~20-line COI handler for
-CEF.
+**Later / deferred:** in-client (CEF) heavy — the pure-Java `HttpServer` + ~20-line
+COI handler (so the LB client itself serves the COI bundle); the in-editor debugger
++ stepping UI (old task #8).
 
 ---
 
