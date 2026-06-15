@@ -93,7 +93,28 @@ Set up a real workspace (`lb-ws/`: `main.ts` + `tsconfig` + the real 271 MB
    → So our typings DO work in real vscode-web — *provided they're served by a proper
    FS* (workspace files here; in a real deploy, an in-browser FS provider, which
    `@vscode/test-web` is not). The node_modules-virtual-path gap is test-web-specific.
-4. **Latency at the real ~6000-`.d.ts` scale: SLOW cold start (~75–81 s).**
+5. **Fetch-vs-CPU split (CDP network + CPU profiling, N=3): the cold start is
+   substantially CPU-BOUND, not fetch-bound.** (Adversarial QC demanded this; it
+   reversed my first read.)
+   - Cold start ~72–74 s. During it, `.d.ts` fetches: **12,238 (all HTTP 200, zero
+     404s), 17.4 MB**, but **6,110 duplicate URLs** (each file re-fetched ~2× —
+     `max-age=0` forces re-reads).
+   - **Chromium CPU during the window: ~1.53 cores average, 4.34 peak, sustained for
+     the full ~73 s.** The system is CPU-busy, not idle-waiting on the network — so
+     the ~46 s of "gaps between requests" is tsserver **CPU** (parse/bind/type-check
+     the closure), not round-trip latency.
+   - **Implication:** an **in-memory FS provider would NOT dramatically cut cold
+     start** — it removes the duplicate fetches + round-trips (the minority), but the
+     dominant cost is tsserver processing the ~6000-file closure (CPU). The real
+     lever is **reducing the type volume tsserver must process**: a pre-built
+     **barrel / trimmed `.d.ts`** (our `apps/editor` already ships only the ~1.2 MB
+     transitive closure via `tsc --listFiles`, vs the full 271 MB package), and/or
+     project layout that avoids the 2× re-reads. (Caveat: I measured total Chromium
+     CPU, not isolated tsserver-worker CPU; but no-404 + all-200 + 1.5 cores
+     sustained makes "not network-blocked" solid.)
+   - This answers Koda's split directly: **mostly CPU on the closure → a faster FS
+     won't save us; a barrel/smaller typings set is the mitigation.**
+6. **Latency at the real ~6000-`.d.ts` scale: SLOW cold start (~72–81 s).**
    From opening `main.ts` to first diagnostics: **~75 s**; settled at **~81 s** — the
    time for the web tsserver to pull + build the program from the `@wunk` closure over
    the FS the first time. (A trivial workspace-local file diagnoses instantly; the 75 s
