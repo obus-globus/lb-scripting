@@ -54,17 +54,25 @@ Set up a real workspace (`lb-ws/`: `main.ts` + `tsconfig` + the real 271 MB
 `tsserver.web.js` was missing. Run **`npm run compile-web`** (builds
 `extensions/typescript-language-features/dist/browser/typescript/tsserver.web.js`).
 
-1. **DOES THE WEB TS LAYER REQUIRE CROSS-ORIGIN ISOLATION? → YES. Definitive.**
-   Clean A/B with `tsserver.web.js` present in both:
-   - `code-web` (no `--coi`, `crossOriginIsolated:false`): **zero diagnostics** —
-     tsserver never runs, not even my deliberate per-file error.
+1. **DOES THE WEB TS LAYER REQUIRE CROSS-ORIGIN ISOLATION? → almost certainly YES**
+   (strong, but N=1 per condition — see caveat). A/B with `tsserver.web.js` present
+   in both:
+   - `code-web` (no `--coi`, `crossOriginIsolated:false`): **zero diagnostics** even
+     after 180s, deliberate per-file error NOT flagged, and **`tsserver.web.js` was
+     never even fetched** (network log) — i.e. the server never *started*, not a 404.
    - `code-web --coi` (`crossOriginIsolated:true`, SharedArrayBuffer): **tsserver
-     runs and type-checks** — `Errors: 7`, including
-     `Type 'string' is not assignable to type 'number'` (my deliberate error).
-   → The web `tsserver` needs **SharedArrayBuffer / COI to run at all** (not just for
-   project-wide). **This kills the "no COI needed" advantage for OUR use case** — TS
-   intelligence is our core value, so if CEF can't cross-origin-isolate a localhost
-   page, there is no TS. This is the make-or-break for the whole VS-Code-web idea.
+     runs and type-checks within seconds** — `Errors: 7`, incl.
+     `Type 'string' is not assignable to type 'number'` (my deliberate per-file error,
+     which needs no project context → warm-up/serving ruled out).
+   - Corroborated by VS Code's own docs: the web `tsserver` uses **SharedArrayBuffer**,
+     which only exists when `crossOriginIsolated === true`.
+   **Caveat (honest):** one config per condition; the `--coi` flag may change more
+   than just the COOP/COEP headers, so I haven't *fully isolated* COI from everything
+   it toggles. But the never-fetched signal + the documented SAB dependency make
+   "COI/SAB required for tsserver to start" the strongly-supported reading.
+   → **If so (very likely), the "no COI needed" advantage does NOT hold for OUR use
+   case** — TS intelligence is our core value, so without CEF cross-origin isolation
+   on a localhost page, there is no TS. That makes CEF-COI the single make-or-break.
 2. **Cross-file resolution: WORKS.** A workspace-local `local-types.d.ts`
    (`declare function localGlobalFn(): number`) resolves cleanly into `main.ts`
    (no "cannot find") — cross-file type resolution across workspace files is fine,
