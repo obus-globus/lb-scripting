@@ -1,0 +1,9 @@
+{
+  "name": "lb-glue",
+  "publisher": "obus",
+  "version": "0.0.1",
+  "engines": { "vscode": "^1.90.0" },
+  "browser": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": { "commands": [{ "command": "lb.buildAndRun", "title": "LB: Build & Run in Client" }] }
+}
