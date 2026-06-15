@@ -34,7 +34,7 @@ const MIME = {
   ".json": "application/json; charset=utf-8", ".map": "application/json; charset=utf-8",
   ".ttf": "font/ttf", ".woff": "font/woff", ".woff2": "font/woff2", ".svg": "image/svg+xml",
   ".png": "image/png", ".jpg": "image/jpeg", ".gif": "image/gif", ".ico": "image/x-icon",
-  ".wasm": "application/wasm", ".html": "text/html; charset=utf-8", ".txt": "text/plain; charset=utf-8",
+  ".wasm": "application/wasm", ".txt": "text/plain; charset=utf-8",
 };
 const mime = (p) => MIME[path.extname(p).toLowerCase()] || "application/octet-stream";
 
@@ -86,8 +86,9 @@ async function renderWorkbench(reqHost, projectId) {
 
 // Safe static file serve from a root (no path traversal).
 async function serveStatic(root, rel, res) {
-  const full = path.join(root, rel);
-  if (!full.startsWith(path.resolve(root))) { res.writeHead(403); res.end(); return; }
+  const base = path.resolve(root);
+  const full = path.resolve(base, rel);
+  if (full !== base && !full.startsWith(base + path.sep)) { res.writeHead(403); res.end(); return; }
   try {
     const st = await stat(full);
     if (st.isDirectory()) { res.writeHead(403); res.end(); return; }
@@ -110,6 +111,11 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (pathname === "/lb/config") {
+      // NOTE (trust boundary): this returns bridgeToken to anything on this origin
+      // (incl. workbench extensions/webviews). The token drives /api/load (runs code
+      // in the client), so the heavy origin must be trusted — same posture as the
+      // lean editor, which also holds the token in-page. Don't host untrusted
+      // extensions/webviews on this origin.
       res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
       res.end(JSON.stringify({ bridgeBase: BRIDGE_BASE, bridgeToken: BRIDGE_TOKEN, projectId: PROJECT_ID }));
       return;

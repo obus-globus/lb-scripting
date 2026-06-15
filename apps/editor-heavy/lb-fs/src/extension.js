@@ -39,7 +39,13 @@ class LbFs {
 
   // ---- provisioning ---------------------------------------------------------
   async init(context) {
-    if (!this.ready) this.ready = this._provision(context);
+    // Never leave `ready` rejected — a rejected promise would make every stat/
+    // readFile throw forever (unrecoverable broken window). On failure, surface
+    // the error and resolve with whatever was seeded (at worst an empty root).
+    if (!this.ready) this.ready = this._provision(context).catch((e) => {
+      vscode.window.showErrorMessage("LB workspace failed to load: " + (e && e.message || e));
+      console.error("[lbfs] provision failed", e);
+    });
     return this.ready;
   }
   async _provision(context) {
@@ -116,15 +122,21 @@ class LbFs {
   }
   async delete(uri) {
     await this.ready;
-    this.files.delete(uri.path);
+    // delete the file, or a directory (all keys under <path>/).
+    if (this.files.has(uri.path)) this.files.delete(uri.path);
+    else { const pre = uri.path + "/"; for (const k of [...this.files.keys()]) if (k.startsWith(pre)) this.files.delete(k); }
     this._emitter.fire([{ type: vscode.FileChangeType.Deleted, uri }]);
     this._scheduleSave();
   }
   async rename(oldUri, newUri) {
     await this.ready;
     const f = this.files.get(oldUri.path);
-    if (!f) throw vscode.FileSystemError.FileNotFound(oldUri);
-    this.files.delete(oldUri.path); this.files.set(newUri.path, f);
+    if (f) { this.files.delete(oldUri.path); this.files.set(newUri.path, f); }
+    else {
+      // directory rename → move every child key.
+      const pre = oldUri.path + "/";
+      for (const k of [...this.files.keys()]) if (k.startsWith(pre)) { const v = this.files.get(k); this.files.delete(k); this.files.set(newUri.path + k.slice(oldUri.path.length), v); }
+    }
     this._emitter.fire([{ type: vscode.FileChangeType.Deleted, uri: oldUri }, { type: vscode.FileChangeType.Created, uri: newUri }]);
     this._scheduleSave();
   }

@@ -1009,7 +1009,7 @@ require(["vs/editor/editor.main"], async () => {
     if (!proj) return;
     let heavy = (localStorage.getItem("lb-ide:heavyUrl") || "").trim();
     if (!heavy) { heavy = (prompt("Heavy editor URL:", "http://localhost:9900") || "").trim(); if (!heavy) return; localStorage.setItem("lb-ide:heavyUrl", heavy); }
-    try { await apiFetch("api/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(proj) }); }
+    try { const r = await apiFetch("api/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(proj) }); if (!r.ok) throw new Error("HTTP " + r.status); }
     catch (e) { log("✗ couldn't persist project to host before opening heavy: " + (e && e.message || e), "e"); return; }
     const url = heavy.replace(/\/+$/, "") + "/?project=" + encodeURIComponent(proj.id);
     log("opening in heavy editor: " + url, "d");
