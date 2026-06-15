@@ -2,11 +2,26 @@
 // Each wunk/<rel>.d.ts becomes  declare module "@wunk/lb-script-api-types/<rel>" { <content, imports rewritten to specifiers> }
 // so deep imports resolve against already-loaded ambient blocks (no per-file FS probing).
 // ambient/ambient.d.ts is kept at TOP LEVEL (it provides the globals mc/registerScript).
+//
+// Usage:
+//   node gen-barrel.mjs --wunk <closure-dir> --out <barrel.d.ts> [--pkg <name>] [--ambient <rel>]
+//   (env LB_WUNK / LB_BARREL_OUT / LB_PKG also work). The ambient module is written
+//   as a SEPARATE <out-dir>/ambient.d.ts (NOT concatenated — that breaks the barrel's
+//   script-ness). --ambient is the closure-relative path to the globals d.ts
+//   (default ambient/ambient.d.ts); pass "" to skip if the closure has no globals file.
 import fs from 'fs';
 import path from 'path';
-const WUNK = '/home/clawd/obus/vscode-build/lb-ws2/wunk';
-const OUT = '/home/clawd/obus/vscode-build/lb-barrel/barrel.d.ts';
-const PKG = '@wunk/lb-script-api-types';
+
+function arg(name, env, def) {
+  const i = process.argv.indexOf('--' + name);
+  if (i !== -1 && i + 1 < process.argv.length) return process.argv[i + 1];
+  if (env && process.env[env] != null) return process.env[env];
+  return def;
+}
+const WUNK = path.resolve(arg('wunk', 'LB_WUNK', '/home/clawd/obus/vscode-build/lb-ws2/wunk'));
+const OUT = path.resolve(arg('out', 'LB_BARREL_OUT', '/home/clawd/obus/vscode-build/lb-barrel/barrel.d.ts'));
+const PKG = arg('pkg', 'LB_PKG', '@wunk/lb-script-api-types');
+const AMBIENT_REL = arg('ambient', 'LB_AMBIENT', 'ambient/ambient.d.ts');
 
 function walk(dir) {
   const out = [];
@@ -43,7 +58,7 @@ function rewriteImports(content, fileDir) {
 }
 
 const files = walk(WUNK);
-const ambientAbs = path.join(WUNK, 'ambient', 'ambient.d.ts');
+const ambientAbs = AMBIENT_REL ? path.join(WUNK, AMBIENT_REL) : null;
 let moduleBlocks = [];
 let ambientTop = '';
 let n = 0;
@@ -67,7 +82,10 @@ for (const f of files) {
 fs.mkdirSync(path.dirname(OUT), { recursive: true });
 const barrel = moduleBlocks.join('\n') + '\n';
 fs.writeFileSync(OUT, barrel);
-const AMB = path.join(path.dirname(OUT), 'ambient.d.ts');
-fs.writeFileSync(AMB, ambientTop);
 console.log(`barrel: ${n} declare-module blocks (script), ${(barrel.length/1e6).toFixed(1)}MB -> ${OUT}`);
-console.log(`ambient: separate module file -> ${AMB}`);
+if (ambientAbs) {
+  if (!ambientTop) { console.error(`ambient file not found in closure: ${AMBIENT_REL} (pass --ambient "" to skip)`); process.exit(1); }
+  const AMB = path.join(path.dirname(OUT), 'ambient.d.ts');
+  fs.writeFileSync(AMB, ambientTop);
+  console.log(`ambient: separate module file -> ${AMB}`);
+}
