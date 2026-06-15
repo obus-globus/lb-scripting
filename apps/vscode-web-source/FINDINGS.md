@@ -119,18 +119,24 @@ Set up a real workspace (`lb-ws/`: `main.ts` + `tsconfig` + the real 271 MB
    (`apps/editor`'s `typings-bundle.json`) is **6035 files / 10.6 MB raw / 1.14 MB
    gz** — my "1.2 MB" was the gz figure. Materialized exactly those 6035 files into a
    clean workspace (no full package) and re-measured under `--coi`:
-   - **Trimmed closure: 69.8 s** cold start, **1.54 cores** avg CPU, **12,237** `.d.ts`
-     fetches, **6,110 duplicates**, 0×404, resolves correctly (1 squiggle = the
-     deliberate error).
-   - **Full 271 MB package: 73.7 s**, 1.53 cores, 12,238 fetches, 6,110 dupes.
-   → **Statistically identical.** tsserver was already lazily reading only the ~6035
-   closure files from the full package, so trimming the on-disk package changes
-   nothing. **Make-or-break #2 stands:** the real production typings give a ~70 s,
-   CPU-bound cold start in vscode-web. Even with only 6035 files present, tsserver
-   reads each ~2× (6,110 dupes) — inherent to the web tsserver, not a package
-   artifact. The only *untested* remaining lever is a single concatenated **barrel
-   `.d.ts`** (6035 file-ops → 1), which might cut per-file/IO overhead but, given the
-   CPU-bound profile, may not dent the type-checking CPU — unproven.
+   - **Trimmed closure (N=2): 66.8 s & 69.8 s** cold start, **1.38–1.54 cores** avg
+     CPU, **12,237** `.d.ts` fetches, **6,110 duplicates**, 0×404, resolves correctly
+     (1 squiggle = the deliberate error).
+   - **Full 271 MB package (N=3, ~73 s): 73.7 s**, 1.53 cores, 12,238 fetches, 6,110
+     dupes.
+   → **The workload is unchanged by trimming:** fetch count, dupes, and CPU are
+   near-bit-identical (12238→12237, 6110→6110, ~1.5 cores), so tsserver was already
+   lazily reading only the ~6035-file closure from the full package. Trimmed is ~67 s
+   vs full ~73 s — a small directional difference, **within single-run variance**;
+   the invariant fetch/CPU counts are why I attribute the few seconds to jitter, not
+   to trimming. **Make-or-break #2 stands:** the real production typings give a
+   **~70 s, CPU-bound cold start** in vscode-web — not an order of magnitude better.
+   - The ~2×-per-file read (12,237 fetches / 6035 files) is **not a full-package
+     artifact** (it persists at 6035 files); whether it's the web tsserver's fetch
+     layer or lib resolution is unisolated.
+   - **Only untested lever:** a single concatenated **barrel `.d.ts`** (6035 file-ops
+     → 1). It attacks IO/file-op overhead — the *non-binding* resource given the
+     CPU-bound profile — so it's **plausibly low-value, untested.**
 8. **Latency at the real ~6000-`.d.ts` scale: SLOW cold start (~70–81 s).**
    From opening `main.ts` to first diagnostics: **~75 s**; settled at **~81 s** — the
    time for the web tsserver to pull + build the program from the `@wunk` closure over
