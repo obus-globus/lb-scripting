@@ -22,6 +22,7 @@ await build({
   // @lb-ide/core's pipeline + esbuild-wasm's browser API (bundled into the worker).
   alias: {
     "@lb-ide/core/build": join(repo, "packages/lb-ide-core/src/build.js"),
+    "@lb-ide/core/bridge": join(repo, "packages/lb-ide-core/src/bridge.js"),
     "esbuild-wasm": join(repo, "apps/editor/node_modules/esbuild-wasm/esm/browser.js"),
   },
 });

@@ -9,6 +9,7 @@
 import * as vscode from "vscode";
 import * as esbuild from "esbuild-wasm";
 import { runBuild, DEFAULT_BUILD } from "@lb-ide/core/build";
+import { createBridge } from "@lb-ide/core/bridge";
 
 // Runtime assets ship alongside the bundled `dist/extension.js` browser entry.
 const assetUri = (context, name) => vscode.Uri.joinPath(context.extensionUri, "dist", name);
@@ -62,7 +63,20 @@ export function activate(context) {
       if (Object.values(files).some((c) => /from\s+["']lb-inject["']/.test(c))) injectBundle = await readAsset(context, "lb-inject-bundled.js");
       const built = await runBuild({ esbuild, files, cfg: { ...DEFAULT_BUILD }, injectBundle });
       ch.appendLine(`[lb-glue] built ${built.name} — ${built.code.length} bytes`);
-      vscode.window.showInformationMessage(`LB-GLUE-OK: built ${built.name} (${built.code.length} bytes)`);
+
+      // Hand the built .mjs to the in-client ScriptManager host (if configured).
+      // Web-only with no live host → base unset → build-only. The bridge is the
+      // SAME shared @lb-ide/core client the lean editor uses (token-headered).
+      const cfg = vscode.workspace.getConfiguration("lb");
+      const base = cfg.get("hostBase", "");
+      if (base) {
+        const bridge = createBridge({ base, token: cfg.get("hostToken", "") });
+        const res = await bridge.load({ name: built.name.replace(/\.mjs$/, ""), mjs: built.code, debug: false });
+        ch.appendLine(`[lb-glue] host load → ${JSON.stringify(res)}`);
+        vscode.window.showInformationMessage(`LB-GLUE-OK: loaded ${built.name} → host ${JSON.stringify(res)}`);
+      } else {
+        vscode.window.showInformationMessage(`LB-GLUE-OK: built ${built.name} (${built.code.length} bytes)`);
+      }
     } catch (e) {
       ch.appendLine("[lb-glue] build failed: " + (e && (e.stack || e.message) || e));
       vscode.window.showErrorMessage("LB-GLUE-FAIL: " + (e && e.message || e));

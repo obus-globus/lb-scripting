@@ -5,5 +5,14 @@
   "engines": { "vscode": "^1.90.0" },
   "browser": "./dist/extension.js",
   "activationEvents": ["onStartupFinished"],
-  "contributes": { "commands": [{ "command": "lb.buildAndRun", "title": "LB: Build & Run in Client" }] }
+  "contributes": {
+    "commands": [{ "command": "lb.buildAndRun", "title": "LB: Build & Run in Client" }],
+    "configuration": {
+      "title": "LB Glue",
+      "properties": {
+        "lb.hostBase": { "type": "string", "default": "", "description": "ScriptManager host base URL (e.g. http://localhost:PORT/). Empty = build-only." },
+        "lb.hostToken": { "type": "string", "default": "", "description": "Per-session X-IDE-Token for the host API." }
+      }
+    }
+  }
 }
