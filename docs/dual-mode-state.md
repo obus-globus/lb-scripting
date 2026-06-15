@@ -116,9 +116,9 @@ Then load `http://localhost:9888/` in headless/headful Chrome (honors COI header
 `wunk/` closure dir, emits `barrel.d.ts` (pure global script: only `declare module`
 blocks; NO top-level imports — a top-level import turns the file into a module and
 breaks ambient-module recognition) + a separate `ambient.d.ts` (the globals module,
-imports rewritten to @wunk specifiers). **Paths are hardcoded to the spike tree
-(`/home/clawd/obus/vscode-build/lb-ws2/wunk` → `/home/clawd/obus/vscode-build/lb-barrel`)
-— parameterize when wiring the heavy build.** A test workspace exists at
+imports rewritten to @wunk specifiers). **Parameterized** (`--wunk/--out/--pkg/
+--ambient` or env `LB_WUNK`/`LB_BARREL_OUT`/…; defaults to the spike tree). A test
+workspace exists at
 `/home/clawd/obus/vscode-build/lb-barrel` (barrel.d.ts + ambient.d.ts + main.ts +
 tsconfig — moduleResolution bundler, no paths mapping).
 
@@ -126,7 +126,7 @@ tsconfig — moduleResolution bundler, no paths mapping).
 
 ## 4. Current build state
 
-**Branch `feat/dual-mode-ide` @ `ac87f4e`** (off master, pushed to origin).
+**Branch `feat/dual-mode-ide` @ `59a35d5`** (off master, pushed to origin).
 
 **Phase 1 DONE: `@lb-ide/core` extracted** (single-sourced LB pipeline; both modes
 consume it). Lean stayed green (headless `verify.mjs` passes after every step);
@@ -185,28 +185,72 @@ sets `lb.hostBase`/`lb.hostToken`/`lb.selfTestOnStartup`); harness scripts live 
 `/home/clawd/obus/vscode-build/`: `probe-glue.mjs` (activation), `probe-e2e.mjs`
 (the 3-way proof), `mock-host.mjs` (the bridge-contract host on :9777).
 
+**Phase 3 DONE: runnable heavy shell + serving layer + lean→heavy switch.**
+Heavy is now a real, user-launchable mode (no `@vscode/test-web`). Pieces:
+- **`apps/editor-heavy/host/`** — a dependency-free node static host: serves the
+  `vscode-web` bundle under COI (COOP same-origin + COEP require-corp), renders the
+  workbench shell at `/` with the correct `WORKBENCH_WEB_CONFIGURATION` and the
+  build's REAL stylesheet name (`workbench.web.main.internal.css` — test-web links
+  `workbench.web.main.css`, which 404s → no theme/codicons; that was the broken
+  render). Serves `/devext` (glue), `/fsext` (lb-fs), `/typings` (barrel),
+  `/lb/config`. Reads `?project=<id>` → `folderUri` authority. Bootstrap vendored
+  from test-web (`web/bootstrap.js`, MIT). Env: `LB_BUNDLE`, `LB_GLUE`, `LB_FSEXT`,
+  `LB_TYPINGS`, `LB_PORT`, `LB_BRIDGE_BASE`, `LB_BRIDGE_TOKEN`, `LB_PROJECT_ID`.
+- **`apps/editor-heavy/lb-fs/`** — an `lbfs:/` `FileSystemProvider` builtin web
+  extension. On activation: derives the host origin from its `extensionUri`, fetches
+  `/lb/config`, reads the project id from the folder authority, pulls the project
+  from the bridge (`bridge.projects()` → `GET /api/projects`, the SAME api lean's
+  `save` writes to), seeds an in-memory FS with the project files + barrel typings
+  + a tsconfig that includes them + a `.vscode/settings.json` (so glue's build
+  reaches the same bridge), and mirrors writes back via `bridge.save` (debounced).
+  Bundled like glue (`dist/` gitignored).
+- **`gen-barrel.mjs` parameterized** (`--wunk/--out/--pkg/--ambient` or env);
+  byte-identical to the spike barrel. New `bridge.projects()` in core.
+- **Lean `open in heavy ↗`** button (shown when `bridgeOn`): persists the project
+  via `/api/save` (checks `res.ok`), opens `<heavyUrl>/?project=<id>` (heavyUrl from
+  `localStorage["lb-ide:heavyUrl"]`, prompts once).
+- **Proven headful on our host** (clean render — VIEWED): bridge-sourced multi-file
+  project opens with full `@wunk` barrel intellisense (Vec3.x→number, relative
+  import + ambient globals resolve, exactly the planted error squiggle); edit + save
+  → `lb-fs` writes back to the ScriptManager (`saved demo-proj`); `LB: Build` → glue
+  builds via core → `bridge.load` reaches the host (`load main 246B`). Lean
+  regression green; sub-agent review applied (provision-failure recovery, dir
+  rename/delete, save-ok check, traversal hardening, token trust-boundary note).
+  Commits `2c5e33c`, `3a6fe11`, `90afb8e`, `ef4f97a`, `59a35d5`.
+
+Reproduce: `node vscode-build/dev-scriptmanager.mjs` (a faithful node stand-in for
+the in-client host API — GET /api/projects, POST /api/save/load — seeded with
+`demo-proj`, on :9777), then `LB_BRIDGE_BASE=http://localhost:9777/
+LB_BRIDGE_TOKEN=testtok-123 LB_PROJECT_ID=demo-proj node apps/editor-heavy/host/server.mjs`
+(:9900). Harness scripts in `/home/clawd/obus/vscode-build/`: `probe-roundtrip.mjs`
+(the 3-way proof), `clean-shot.mjs`/`shot-project.mjs` (headful captures),
+`dev-scriptmanager.mjs`. The barrel typings live in `apps/editor-heavy/host/typings/`
+(gitignored; regenerate via gen-barrel.mjs against `vscode-build/lb-ws2/wunk`).
+
 ---
 
 ## 5. Remaining phases + RESUME POINT
 
-**▶ RESUME HERE — Phase 3: the runnable heavy SHELL + mode-switch/serving layer.**
-The glue↔core seam is proven; what's left to make heavy a *real, user-launchable
-mode* (today it's only exercised via `test-web` + the headless probes):
-1. **A serving layer** that hosts the static `vscode-web` bundle with the COI
-   headers (COOP same-origin + COEP require-corp), opens the user's project
-   workspace, and loads the glue extension — without `@vscode/test-web` (that's a
-   dev harness). Lean default / heavy opt-in; **separate origins/ports** to avoid
-   service-worker + COI coexistence issues. Decide how the heavy workspace + barrel
-   typings are provisioned (an in-browser FS seeded with the user's files + the
-   generated barrel).
-2. **Parameterize `gen-barrel.mjs`** (paths are hardcoded to the spike tree — see
-   §3) and wire the barrel generation into the heavy build/provisioning so a real
-   project gets `@wunk` typings.
-3. **Mode switch UI** from the lean editor (open-in-heavy) + carrying the project
-   across.
+**▶ RESUME HERE — Phase 4: deploy + in-client (CEF) heavy.** Heavy works end-to-end
+in dev; what's left to ship it:
+1. **Deploy the heavy host** behind the path-routed domain (it needs its OWN origin
+   for COI + webview `{{uuid}}.` subdomains — note `webEndpointUrlTemplate` is
+   `http://{{uuid}}.<host>` which only works on `*.localhost`/wildcard-DNS origins;
+   pick a real webview-isolation strategy for prod). Lean stays default; heavy opt-in
+   via the switch. Wire the lean button's `heavyUrl` default to the deployed origin.
+2. **Generate + serve the barrel from the real `@wunk` version** the project targets
+   (today it's pre-generated from the spike closure into `host/typings/`); tie barrel
+   regen to the api-types version.
+3. **In-client (CEF) heavy** (if wanted): the pure-Java `HttpServer` + ~20-line COI
+   handler so the LB client itself serves the COI bundle (the GraalJS-script socket
+   server can't — see §2). Then both modes run fully in-client.
 
-**Later / deferred:** in-client (CEF) heavy — the pure-Java `HttpServer` + ~20-line
-COI handler (so the LB client itself serves the COI bundle); the in-editor debugger
+Known gaps to revisit (from review, deferred as non-blocking): empty-directory
+round-trip fidelity (lb-fs derives dirs from file paths; lean tracks `proj.folders`),
+binary files (the project model is text-only by design), and the `/lb/config` token
+trust boundary (documented in code).
+
+**Later / deferred:** the in-editor debugger
 + stepping UI (old task #8).
 
 ---
