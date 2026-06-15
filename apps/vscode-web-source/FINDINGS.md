@@ -47,6 +47,49 @@ this watch config. Core workbench fully functional.)
   worker is registered (ext-host resources). **Cross-origin isolation (COOP/COEP)
   not required** for the core workbench (only some WASM/SAB extension paths).
 
+## CRUX TEST RESULTS (typings + cross-file + COI) — decisive
+Set up a real workspace (`lb-ws/`: `main.ts` + `tsconfig` + the real 271 MB
+`@wunk` package in `node_modules`), served via `code-web`, headful (Xvfb).
+**Gotcha first:** `npm run watch` does NOT build the extensions' WEB bundles —
+`tsserver.web.js` was missing. Run **`npm run compile-web`** (builds
+`extensions/typescript-language-features/dist/browser/typescript/tsserver.web.js`).
+
+1. **DOES THE WEB TS LAYER REQUIRE CROSS-ORIGIN ISOLATION? → YES. Definitive.**
+   Clean A/B with `tsserver.web.js` present in both:
+   - `code-web` (no `--coi`, `crossOriginIsolated:false`): **zero diagnostics** —
+     tsserver never runs, not even my deliberate per-file error.
+   - `code-web --coi` (`crossOriginIsolated:true`, SharedArrayBuffer): **tsserver
+     runs and type-checks** — `Errors: 7`, including
+     `Type 'string' is not assignable to type 'number'` (my deliberate error).
+   → The web `tsserver` needs **SharedArrayBuffer / COI to run at all** (not just for
+   project-wide). **This kills the "no COI needed" advantage for OUR use case** — TS
+   intelligence is our core value, so if CEF can't cross-origin-isolate a localhost
+   page, there is no TS. This is the make-or-break for the whole VS-Code-web idea.
+2. **Cross-file resolution: WORKS.** A workspace-local `local-types.d.ts`
+   (`declare function localGlobalFn(): number`) resolves cleanly into `main.ts`
+   (no "cannot find") — cross-file type resolution across workspace files is fine,
+   and go-to-def-class machinery is live.
+3. **The 12 MB `@wunk` typings: resolved-but-not-served (harness limitation).**
+   tsserver computes the CORRECT path via the package's `typesVersions`
+   (`…/@wunk/lb-script-api-types/ambient/ambient.d.ts`) but errors
+   `File '/vscode-node-modules/mount/…/ambient.d.ts' not found` — **`@vscode/test-web`
+   does not serve `node_modules` through the web tsserver's `/vscode-node-modules/`
+   virtual provider.** This is a test-web *serving* gap, NOT a TS limitation: a real
+   deploy with a proper in-browser FS provider (memfs / our own, like `apps/editor`
+   already does) would serve them. So "do our typings work" is **resolution: yes;
+   file-serving: needs a real FS provider (unproven in test-web)**; latency at the
+   6000-file scale couldn't be measured because the files never served.
+4. **Diagnostic latency:** for the open file, diagnostics appear **instantly**
+   (firstDiagSec 0) once tsserver is up under COI.
+
+### Bottom line for the decision
+Real VS Code web from source **builds, renders, and runs TS** — but **only under
+cross-origin isolation**. For our CEF-on-localhost target that converts the earlier
+"COI not required" into **COI IS required**, and whether CEF supports
+crossOriginIsolated on a localhost origin is now the single gating question (needs
+scorpion's client). Typings resolution works; serving them needs a real FS provider
+(test-web won't).
+
 ## Open / next (per the task's step 3, only now that it loads)
 1. **TS + our 12 MB `@wunk` typings:** does the built-in TS work here, and can we
    inject typings via the memfs/FS provider? (Same crux as the monaco-vscode-api
