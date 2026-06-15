@@ -27,6 +27,12 @@ const HOST = process.env.LB_HOST || "localhost";
 const BRIDGE_BASE = process.env.LB_BRIDGE_BASE || "";
 const BRIDGE_TOKEN = process.env.LB_BRIDGE_TOKEN || "";
 const PROJECT_ID = process.env.LB_PROJECT_ID || "";
+// Webview origin isolation. VS Code serves webview content from a SEPARATE origin
+// (a per-webview {{uuid}} subdomain) so a compromised webview can't reach the
+// workbench origin. In dev, *.localhost resolves to loopback so the default works;
+// in prod set LB_WEBVIEW_ENDPOINT to a wildcard-DNS https origin you control, e.g.
+// "https://{{uuid}}.heavy-webview.example.com" (must NOT be the workbench origin).
+const WEBVIEW_ENDPOINT = process.env.LB_WEBVIEW_ENDPOINT || "";
 
 const MIME = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
@@ -51,12 +57,13 @@ const esc = (v) => JSON.stringify(v).replace(/"/g, "&quot;");
 // projectId comes from the request (?project=) so the lean→heavy switch can target
 // any project; falls back to the host's env default.
 function webConfiguration(reqHost, projectId) {
+  // Webview origin: configurable for prod; default to *.localhost (dev only).
+  const webviewBase = WEBVIEW_ENDPOINT || `http://{{uuid}}.${reqHost}`;
   const cfg = {
     productConfiguration: {
       nameShort: "LB Heavy", nameLong: "LB Script IDE (heavy)", enableTelemetry: false,
-      // *.localhost resolves to loopback in Chrome → webview origin isolation works locally.
-      webEndpointUrlTemplate: `http://{{uuid}}.${reqHost}`,
-      webviewContentExternalBaseUrlTemplate: `http://{{uuid}}.${reqHost}/out/vs/workbench/contrib/webview/browser/pre/`,
+      webEndpointUrlTemplate: webviewBase,
+      webviewContentExternalBaseUrlTemplate: `${webviewBase}/out/vs/workbench/contrib/webview/browser/pre/`,
     },
     // The lb-glue extension, mounted as a development extension (served at /devext).
     developmentOptions: { extensions: [{ scheme: "http", authority: reqHost, path: "/devext" }] },
