@@ -77,18 +77,30 @@ Set up a real workspace (`lb-ws/`: `main.ts` + `tsconfig` + the real 271 MB
    (`declare function localGlobalFn(): number`) resolves cleanly into `main.ts`
    (no "cannot find") — cross-file type resolution across workspace files is fine,
    and go-to-def-class machinery is live.
-3. **The 12 MB `@wunk` typings: resolved-but-not-served (harness limitation).**
-   tsserver computes the CORRECT path via the package's `typesVersions`
-   (`…/@wunk/lb-script-api-types/ambient/ambient.d.ts`) but errors
-   `File '/vscode-node-modules/mount/…/ambient.d.ts' not found` — **`@vscode/test-web`
-   does not serve `node_modules` through the web tsserver's `/vscode-node-modules/`
-   virtual provider.** This is a test-web *serving* gap, NOT a TS limitation: a real
-   deploy with a proper in-browser FS provider (memfs / our own, like `apps/editor`
-   already does) would serve them. So "do our typings work" is **resolution: yes;
-   file-serving: needs a real FS provider (unproven in test-web)**; latency at the
-   6000-file scale couldn't be measured because the files never served.
-4. **Diagnostic latency:** for the open file, diagnostics appear **instantly**
-   (firstDiagSec 0) once tsserver is up under COI.
+3. **The 12 MB `@wunk` typings: RESOLVE END-TO-END. ✅ (the prize)**
+   First attempt failed only because `@vscode/test-web` doesn't serve `node_modules`
+   over the web tsserver's `/vscode-node-modules/` provider. **Worked around it by
+   serving `@wunk` as WORKSPACE files** (moved the 271 MB package to `lb-ws/wunk/`,
+   mapped `@wunk/lb-script-api-types/*` → `./wunk/*` via tsconfig `paths`, ambient via
+   `/// <reference path>`). Under `--coi`, the REAL symbols resolve with NO errors:
+   - `registerScript({...})` ✓ (ambient global), `mc.player` ✓ (ambient global),
+     `import { Vec3 } from "@wunk/.../Vec3"` ✓ (cross-package), `v.x` ✓ (member).
+   - Only diagnostic on the file is my deliberate `Type 'string' is not assignable`
+     error (control) + a cosmetic `baseUrl deprecated` note. Screenshot
+     `headful-wunk-resolved.png`.
+   - **Go-to-def lands across the package:** F12 on `Vec3` opened `Vec3.d.ts` in a new
+     tab. Screenshot `headful-gotodef.png`.
+   → So our typings DO work in real vscode-web — *provided they're served by a proper
+   FS* (workspace files here; in a real deploy, an in-browser FS provider, which
+   `@vscode/test-web` is not). The node_modules-virtual-path gap is test-web-specific.
+4. **Latency at the real ~6000-`.d.ts` scale: SLOW cold start (~75–81 s).**
+   From opening `main.ts` to first diagnostics: **~75 s**; settled at **~81 s** — the
+   time for the web tsserver to pull + build the program from the `@wunk` closure over
+   the FS the first time. (A trivial workspace-local file diagnoses instantly; the 75 s
+   is specifically the 6000-file closure cold start.) After warmup, edits are
+   responsive. **This cold-start latency is a real usability concern** for our ~6000
+   `.d.ts` and would want mitigation (a pre-built single barrel `.d.ts`, or a faster
+   FS than HTTP-per-file).
 
 ### Bottom line for the decision
 Real VS Code web from source **builds, renders, and runs TS** — but **only under
