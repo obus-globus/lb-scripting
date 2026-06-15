@@ -1,0 +1,29 @@
+<!-- LB heavy-mode workbench shell. Based on the @vscode/test-web ESM template,
+     but corrected to link the build's ACTUAL stylesheet name
+     (workbench.web.main.internal.css — test-web links the .css variant the
+     vscode-web-min build doesn't emit, which 404s and kills theme/codicons). -->
+<!DOCTYPE html>
+<html>
+  <head>
+    <script>performance.mark('code/didStartRenderer')</script>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
+
+    <!-- Workbench Configuration -->
+    <meta id="vscode-workbench-web-configuration" data-settings="{{WORKBENCH_WEB_CONFIGURATION}}">
+
+    <!-- Workbench CSS (correct name for the min build) -->
+    <link data-name="vs/workbench/workbench.web.main" rel="stylesheet" href="{{WORKBENCH_WEB_BASE_URL}}/out/vs/workbench/workbench.web.main.internal.css" />
+    <style id="vscode-css-modules" type="text/css" media="screen"></style>
+  </head>
+  <body aria-label=""></body>
+
+  <!-- Startup (do not modify order of script tags!) -->
+  <script>
+    const baseUrl = new URL('{{WORKBENCH_WEB_BASE_URL}}', window.location.origin).toString();
+    globalThis._VSCODE_FILE_ROOT = baseUrl + '/out/';
+  </script>
+  <script>performance.mark('code/willLoadWorkbenchMain');</script>
+  <script src="{{WORKBENCH_WEB_BASE_URL}}/out/nls.messages.js"></script>
+  <script type="module">{{WORKBENCH_MAIN}}</script>
+</html>

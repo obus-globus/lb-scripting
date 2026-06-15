@@ -1,0 +1,9 @@
+{
+  "name": "lb-ide-heavy-host",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Deployable web-only static host for the heavy (from-source vscode-web) LB Script IDE mode: serves the bundle under cross-origin isolation + the lb-glue dev extension.",
+  "scripts": { "start": "node server.mjs" },
+  "license": "MIT"
+}
