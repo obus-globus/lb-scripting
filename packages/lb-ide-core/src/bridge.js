@@ -14,6 +14,9 @@ export function createBridge({ base = "", token = "", fetchImpl = fetch } = {}) 
     base, token, call,
     /** Host liveness + scripts-root probe → enables "build & run in client". */
     ping: () => json("api/ping", { method: "GET" }),
+    /** List the host's persisted projects (full objects, incl. files) → lets the
+     *  heavy editor open the SAME project lean saved. */
+    projects: () => json("api/projects", { method: "GET" }),
     /** Persist a project to the host's projects dir. */
     save: (project) => call("api/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(project) }),
     /** Write <name>.mjs to ScriptManager.root + load (and enable) it. */

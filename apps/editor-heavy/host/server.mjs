@@ -18,8 +18,15 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BUNDLE = process.env.LB_BUNDLE || "/home/clawd/obus/vscode-web";
 const GLUE = process.env.LB_GLUE || path.resolve(HERE, "../lb-glue");
+const FSEXT = process.env.LB_FSEXT || path.resolve(HERE, "../lb-fs");
+const TYPINGS = process.env.LB_TYPINGS || path.resolve(HERE, "typings");
 const PORT = Number(process.env.LB_PORT || 9900);
 const HOST = process.env.LB_HOST || "localhost";
+// The ScriptManager bridge the project is sourced from (same API the lean editor
+// writes to). Empty base → no workspace (empty window); useful for serving-only checks.
+const BRIDGE_BASE = process.env.LB_BRIDGE_BASE || "";
+const BRIDGE_TOKEN = process.env.LB_BRIDGE_TOKEN || "";
+const PROJECT_ID = process.env.LB_PROJECT_ID || "";
 
 const MIME = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
@@ -42,7 +49,7 @@ const esc = (v) => JSON.stringify(v).replace(/"/g, "&quot;");
 
 // The WORKBENCH_WEB_CONFIGURATION (IWorkbenchConstructionOptions). base = "" → same origin.
 function webConfiguration(reqHost) {
-  return {
+  const cfg = {
     productConfiguration: {
       nameShort: "LB Heavy", nameLong: "LB Script IDE (heavy)", enableTelemetry: false,
       // *.localhost resolves to loopback in Chrome → webview origin isolation works locally.
@@ -52,6 +59,13 @@ function webConfiguration(reqHost) {
     // The lb-glue extension, mounted as a development extension (served at /devext).
     developmentOptions: { extensions: [{ scheme: "http", authority: reqHost, path: "/devext" }] },
   };
+  // When a project is configured, open an lbfs:/ workspace served by the lb-fs
+  // builtin extension (which sources files from the bridge + barrel typings).
+  if (BRIDGE_BASE && PROJECT_ID) {
+    cfg.additionalBuiltinExtensions = [{ scheme: "http", authority: reqHost, path: "/fsext" }];
+    cfg.folderUri = { scheme: "lbfs", authority: "", path: "/" };
+  }
+  return cfg;
 }
 
 async function renderWorkbench(reqHost) {
@@ -91,7 +105,14 @@ const server = http.createServer(async (req, res) => {
       res.end(html);
       return;
     }
+    if (pathname === "/lb/config") {
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ bridgeBase: BRIDGE_BASE, bridgeToken: BRIDGE_TOKEN, projectId: PROJECT_ID }));
+      return;
+    }
     if (pathname.startsWith("/devext/")) { await serveStatic(GLUE, pathname.slice("/devext/".length), res); return; }
+    if (pathname.startsWith("/fsext/")) { await serveStatic(FSEXT, pathname.slice("/fsext/".length), res); return; }
+    if (pathname.startsWith("/typings/")) { await serveStatic(TYPINGS, pathname.slice("/typings/".length), res); return; }
     // everything else → the vscode-web bundle (out/, extensions/, node_modules/, resources/, …)
     await serveStatic(BUNDLE, pathname.replace(/^\//, ""), res);
   } catch (e) {
