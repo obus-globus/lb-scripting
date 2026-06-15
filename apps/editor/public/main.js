@@ -636,6 +636,10 @@ const entryPoint = () => ("main.ts" in proj.files ? "main.ts" : "main.js" in pro
 // ---- per-project build config (an editable lbbuild.config.json, like a normal
 // TS project's tsconfig). Absent → these defaults; present → merged over them. --
 const BUILD_FILE = "lbbuild.config.json";
+// Authoritative for the lean config UI (writeBuildConfig/setBuildField). Mirrors
+// @lb-ide/core build.js DEFAULT_BUILD — runBuild re-merges core's as a fallback,
+// so keep the two in sync (kept here too because the buildless lean app can't
+// sync-import the ESM in these synchronous config helpers).
 const DEFAULT_BUILD = {
   entry: "",                 // "" → auto-detect (main.ts / main.js)
   format: "esm",             // esm | iife | cjs
