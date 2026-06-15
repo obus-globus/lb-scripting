@@ -47,6 +47,25 @@ this watch config. Core workbench fully functional.)
   worker is registered (ext-host resources). **Cross-origin isolation (COOP/COEP)
   not required** for the core workbench (only some WASM/SAB extension paths).
 
+## BASELINE: our existing Monaco `apps/editor` on the SAME closure — the decider
+To weigh the ~70 s, compare against what we'd KEEP. Same 6035-file `@wunk` closure,
+equivalent `main.ts` (ambient globals + cross-package `Vec3` import + deliberate
+error), same metric (fresh page → first working diagnostics), headful, N=3:
+- **`apps/editor` (Monaco standalone TS worker, 6035 `.d.ts` in-memory via
+  `setExtraLibs`): nav→diagnostic ~4.5 s (4.5 / 4.5 / 4.6 s)** — resolves `@wunk`
+  correctly, catches the deliberate error. (`ready` 0.7 s + check ~3.8 s.)
+- **vscode-web (real `tsserver.web` + `@vscode/test-web` HTTP FS): ~70 s.**
+→ **Roughly an order of magnitude (~15×) slower.** Per the keep-vs-switch bar,
+**make-or-break #2 is genuinely disqualifying** — switching to vscode-web would be
+a ~15× cold-start regression vs our current editor on identical typings.
+- *Honest scope (QC'd):* this compares the two **shipping engines as configured**
+  (the right product comparison), but they're different type-checkers — Monaco's
+  standalone worker vs the real tsserver. So the ~15× is engine **+** architecture
+  combined; I did **not** isolate how much is tsserver's heavier eager processing vs
+  FS-provider/IPC overhead. An in-memory FS in vscode-web is untested and, given the
+  CPU-bound profile, unlikely to close most of the gap. N=3 each, point estimates —
+  read it as "~order of magnitude," not a precise multiple.
+
 ## CRUX TEST RESULTS (typings + cross-file + COI) — decisive
 Set up a real workspace (`lb-ws/`: `main.ts` + `tsconfig` + the real 271 MB
 `@wunk` package in `node_modules`), served via `code-web`, headful (Xvfb).
