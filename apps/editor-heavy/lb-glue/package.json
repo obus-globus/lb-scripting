@@ -11,7 +11,8 @@
       "title": "LB Glue",
       "properties": {
         "lb.hostBase": { "type": "string", "default": "", "description": "ScriptManager host base URL (e.g. http://localhost:PORT/). Empty = build-only." },
-        "lb.hostToken": { "type": "string", "default": "", "description": "Per-session X-IDE-Token for the host API." }
+        "lb.hostToken": { "type": "string", "default": "", "description": "Per-session X-IDE-Token for the host API." },
+        "lb.selfTestOnStartup": { "type": "boolean", "default": false, "description": "Headless test only: auto-invoke lb.buildAndRun once after activation." }
       }
     }
   }

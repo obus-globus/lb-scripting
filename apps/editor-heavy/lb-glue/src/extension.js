@@ -11,6 +11,8 @@ import * as esbuild from "esbuild-wasm";
 import { runBuild, DEFAULT_BUILD } from "@lb-ide/core/build";
 import { createBridge } from "@lb-ide/core/bridge";
 
+const BUILD_FILE = "lbbuild.config.json"; // per-project build config (matches the lean editor)
+
 // Runtime assets ship alongside the bundled `dist/extension.js` browser entry.
 const assetUri = (context, name) => vscode.Uri.joinPath(context.extensionUri, "dist", name);
 
@@ -58,10 +60,17 @@ export function activate(context) {
       if (!folders || !folders.length) { vscode.window.showErrorMessage("LB-GLUE: no workspace folder open"); return; }
       const root = folders[0].uri;
       const [files] = await Promise.all([readWorkspaceFiles(root), initEsbuild(context)]);
+      // Per-project build config (an editable lbbuild.config.json, like the lean
+      // editor) merged over the shared defaults. Pull it out of the build inputs.
+      let projCfg = {};
+      if (BUILD_FILE in files) { try { projCfg = JSON.parse(files[BUILD_FILE]); } catch (e) { throw new Error(`${BUILD_FILE}: ${e.message}`); } }
+      delete files[BUILD_FILE];
+      const bcfg = { ...DEFAULT_BUILD, ...projCfg };
       ch.appendLine(`[lb-glue] read ${Object.keys(files).length} files: ${Object.keys(files).join(", ")}`);
       let injectBundle = "";
-      if (Object.values(files).some((c) => /from\s+["']lb-inject["']/.test(c))) injectBundle = await readAsset(context, "lb-inject-bundled.js");
-      const built = await runBuild({ esbuild, files, cfg: { ...DEFAULT_BUILD }, injectBundle });
+      if (bcfg.inlineLbInject !== false && Object.values(files).some((c) => /from\s+["']lb-inject["']/.test(c))) injectBundle = await readAsset(context, "lb-inject-bundled.js");
+      // runBuild merges DEFAULT_BUILD again and resolves cfg.entry via resolveEntry.
+      const built = await runBuild({ esbuild, files, cfg: bcfg, injectBundle });
       ch.appendLine(`[lb-glue] built ${built.name} — ${built.code.length} bytes`);
 
       // Hand the built .mjs to the in-client ScriptManager host (if configured).
@@ -78,12 +87,19 @@ export function activate(context) {
         vscode.window.showInformationMessage(`LB-GLUE-OK: built ${built.name} (${built.code.length} bytes)`);
       }
     } catch (e) {
+      // esbuild build failures carry a structured e.errors[] with locations.
+      const errs = (e && e.errors) || [];
+      if (errs.length) for (const er of errs) ch.appendLine("[lb-glue] ✗ " + (er.location ? er.location.file + ": " : "") + er.text);
       ch.appendLine("[lb-glue] build failed: " + (e && (e.stack || e.message) || e));
-      vscode.window.showErrorMessage("LB-GLUE-FAIL: " + (e && e.message || e));
+      vscode.window.showErrorMessage("LB-GLUE-FAIL: " + (errs.length ? errs[0].text : (e && e.message || e)));
     }
   }));
-  // self-test: invoke once shortly after activation so a headless harness can observe the full path.
-  setTimeout(() => { vscode.commands.executeCommand("lb.buildAndRun"); }, 3000);
+  // Headless self-test only: when lb.selfTestOnStartup is set, fire the command
+  // once after activation so a probe can observe the whole path. Off by default
+  // (never auto-builds in a real workspace).
+  if (vscode.workspace.getConfiguration("lb").get("selfTestOnStartup", false)) {
+    setTimeout(() => { vscode.commands.executeCommand("lb.buildAndRun"); }, 3000);
+  }
 }
 
 export function deactivate() {}
