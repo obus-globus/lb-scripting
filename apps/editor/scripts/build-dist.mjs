@@ -30,6 +30,9 @@ mkdirSync(dist, { recursive: true });
 for (const f of ["index.html", "main.js", "version.js", "typings-bundle.json", "templates.json", "lb-inject.d.ts", "lb-inject-bundled.js"])
   cpSync(path.join(app, "public", f), path.join(dist, f));
 
+// shared @lb-ide/core ESM (dynamic-imported by main.js), copied as real files
+cpSync(path.join(app, "../../packages/lb-ide-core/src"), path.join(dist, "lb-ide-core"), { recursive: true });
+
 // monaco + esbuild-wasm runtime, copied as real files
 cpSync(path.join(nm, "monaco-editor/min/vs"), path.join(dist, "vs"), { recursive: true });
 cpSync(path.join(nm, "esbuild-wasm/lib/browser.min.js"), path.join(dist, "esbuild.js"));

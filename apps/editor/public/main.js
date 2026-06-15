@@ -618,43 +618,14 @@ let esbuildReady = null;
 function initEsbuild() { if (!esbuildReady) esbuildReady = esbuild.initialize({ wasmURL: "esbuild.wasm" }); return esbuildReady; }
 async function ensureInjectBundle() { if (injectBundle == null) injectBundle = await fetch("lb-inject-bundled.js").then((r) => r.text()); return injectBundle; }
 
-function buildPlugins(files, cfg = {}) {
-  const dir = (p) => { const i = p.lastIndexOf("/"); return i < 0 ? "" : p.slice(0, i); };
-  const join = (base, rel) => { const parts = (base + "/" + rel).split("/"); const out = []; for (const s of parts) { if (s === "" || s === ".") continue; if (s === "..") out.pop(); else out.push(s); } return out.join("/"); };
-  const norm = (p) => p.replace(/^\/+/, "");
-  const TYPES = "@wunk/lb-script-api-types/types/";
-  const jvmRewrite = cfg.javaTypeRewrite !== false;
-  const inlineInject = cfg.inlineLbInject !== false;
-  return {
-    name: "lb",
-    setup(build) {
-      // JVM-type value import → Java.type("<fqcn>")  (matches the template build).
-      // When disabled in the config, leave the import external (raw).
-      if (jvmRewrite) {
-        build.onResolve({ filter: /^@wunk\/lb-script-api-types\/types\// }, (a) => ({ path: a.path, namespace: "jvm" }));
-        build.onLoad({ filter: /.*/, namespace: "jvm" }, (a) => {
-          const fqcn = a.path.slice(TYPES.length).replace(/\//g, "."); const name = fqcn.slice(fqcn.lastIndexOf(".") + 1);
-          return { contents: `export const ${name} = Java.type(${JSON.stringify(fqcn)});`, loader: "js" };
-        });
-      } else build.onResolve({ filter: /^@wunk\/lb-script-api-types\/types\// }, (a) => ({ path: a.path, external: true }));
-      // any other @wunk/* import is types-only → empty
-      build.onResolve({ filter: /^@wunk\// }, (a) => ({ path: a.path, namespace: "empty" }));
-      // lb-inject → inlined runtime + re-export of the global it defines (or external)
-      if (inlineInject) {
-        build.onResolve({ filter: /^lb-inject$/ }, () => ({ path: "lb-inject", namespace: "lbinject" }));
-        build.onLoad({ filter: /.*/, namespace: "lbinject" }, () => ({ contents: "globalThis.__nfLibConsumed = true;\n" + (injectBundle || "") + "\nexport const Inject = globalThis.Inject;", loader: "js" }));
-      } else build.onResolve({ filter: /^lb-inject$/ }, (a) => ({ path: a.path, external: true }));
-      build.onLoad({ filter: /.*/, namespace: "empty" }, () => ({ contents: "", loader: "js" }));
-      // project files
-      build.onResolve({ filter: /.*/ }, (a) => {
-        if (a.kind === "entry-point") return { path: norm(a.path), namespace: "vfs" };
-        let p = a.path; if (p.startsWith("./") || p.startsWith("../")) p = join(dir(a.importer), p); p = norm(p);
-        const cands = [p, p + ".ts", p + ".js", p + "/index.ts", p + "/index.js"]; const hit = cands.find((c) => c in files);
-        return { path: hit || p, namespace: "vfs" };
-      });
-      build.onLoad({ filter: /.*/, namespace: "vfs" }, (a) => { const c = files[a.path]; if (c == null) return { errors: [{ text: "not in project: " + a.path }] }; return { contents: c, loader: a.path.endsWith(".js") ? "js" : "ts" }; });
-    },
-  };
+// The esbuild build plugin (Java.type rewrite, lb-inject inlining, vfs) lives in
+// the shared @lb-ide/core package — single-sourced with the heavy editor. The
+// lean app is buildless, so we load the ESM lazily via dynamic import() (symlinked
+// into public/lb-ide-core by scripts/link-public.mjs).
+let _buildPlugins = null;
+async function getBuildPlugins() {
+  if (!_buildPlugins) _buildPlugins = (await import("./lb-ide-core/build-plugin.js")).buildPlugins;
+  return _buildPlugins;
 }
 const entryPoint = () => ("main.ts" in proj.files ? "main.ts" : "main.js" in proj.files ? "main.js" : Object.keys(proj.files)[0]);
 
@@ -695,6 +666,7 @@ async function build() {
     if (error) { log("✗ " + error, "e"); setStatus("build failed"); return; }
     const cfg = { ...DEFAULT_BUILD, ...(config || {}) };
     await initEsbuild();
+    const buildPlugins = await getBuildPlugins();
     if (cfg.inlineLbInject !== false && Object.values(proj.files).some((c) => /from\s+["']lb-inject["']/.test(c))) await ensureInjectBundle();
     const entry = cfg.entry && cfg.entry in proj.files ? cfg.entry : entryPoint();
     const sourcemap = cfg.sourcemap === true ? "inline" : (cfg.sourcemap || false);
@@ -704,7 +676,7 @@ async function build() {
       sourcemap, keepNames: !!cfg.keepNames, treeShaking: cfg.treeShaking !== false,
       charset: cfg.charset || "utf8", define: cfg.define || {}, drop: cfg.drop || [], pure: cfg.pure || [],
       banner: cfg.banner ? { js: cfg.banner } : undefined, footer: cfg.footer ? { js: cfg.footer } : undefined,
-      plugins: [buildPlugins(proj.files, cfg)],
+      plugins: [buildPlugins(proj.files, cfg, injectBundle)],
     });
     const outJs = res.outputFiles.find((f) => !f.path.endsWith(".map")) || res.outputFiles[0];
     const code = outJs.text;
