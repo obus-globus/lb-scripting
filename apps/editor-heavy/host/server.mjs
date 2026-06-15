@@ -48,7 +48,9 @@ function coi(res) {
 const esc = (v) => JSON.stringify(v).replace(/"/g, "&quot;");
 
 // The WORKBENCH_WEB_CONFIGURATION (IWorkbenchConstructionOptions). base = "" → same origin.
-function webConfiguration(reqHost) {
+// projectId comes from the request (?project=) so the lean→heavy switch can target
+// any project; falls back to the host's env default.
+function webConfiguration(reqHost, projectId) {
   const cfg = {
     productConfiguration: {
       nameShort: "LB Heavy", nameLong: "LB Script IDE (heavy)", enableTelemetry: false,
@@ -59,22 +61,23 @@ function webConfiguration(reqHost) {
     // The lb-glue extension, mounted as a development extension (served at /devext).
     developmentOptions: { extensions: [{ scheme: "http", authority: reqHost, path: "/devext" }] },
   };
-  // When a project is configured, open an lbfs:/ workspace served by the lb-fs
-  // builtin extension (which sources files from the bridge + barrel typings).
-  if (BRIDGE_BASE && PROJECT_ID) {
+  // When a project + bridge are configured, open an lbfs://<projectId>/ workspace
+  // served by the lb-fs builtin extension (sources files from the bridge + barrel
+  // typings). The project id rides in the folder authority so lb-fs can read it.
+  if (BRIDGE_BASE && projectId) {
     cfg.additionalBuiltinExtensions = [{ scheme: "http", authority: reqHost, path: "/fsext" }];
-    cfg.folderUri = { scheme: "lbfs", authority: "", path: "/" };
+    cfg.folderUri = { scheme: "lbfs", authority: projectId, path: "/" };
   }
   return cfg;
 }
 
-async function renderWorkbench(reqHost) {
+async function renderWorkbench(reqHost, projectId) {
   const tpl = await readFile(path.join(HERE, "web", "workbench.html"), "utf8");
   let main = await readFile(path.join(HERE, "web", "bootstrap.js"), "utf8");
   // Point the bootstrap's `./workbench.api` import at the build's real entry.
   main = main.replace("./workbench.api", "/out/vs/workbench/workbench.web.main.internal.js");
   const values = {
-    WORKBENCH_WEB_CONFIGURATION: esc(webConfiguration(reqHost)),
+    WORKBENCH_WEB_CONFIGURATION: esc(webConfiguration(reqHost, projectId)),
     WORKBENCH_WEB_BASE_URL: "",
     WORKBENCH_MAIN: main,
   };
@@ -100,7 +103,8 @@ const server = http.createServer(async (req, res) => {
   const pathname = decodeURIComponent(url.pathname);
   try {
     if (pathname === "/" || pathname === "/index.html") {
-      const html = await renderWorkbench(reqHost);
+      const projectId = url.searchParams.get("project") || PROJECT_ID;
+      const html = await renderWorkbench(reqHost, projectId);
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(html);
       return;

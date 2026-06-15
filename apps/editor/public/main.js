@@ -976,7 +976,7 @@ require(["vs/editor/editor.main"], async () => {
       if (!(r.ok && (await r.json()).ok)) return;
       bridgeOn = true;
       $("sbBridge").style.display = "";
-      $("runClient").style.display = ""; $("autoRun").style.display = ""; $("dbg").style.display = ""; $("replBtn").style.display = "";
+      $("runClient").style.display = ""; $("autoRun").style.display = ""; $("dbg").style.display = ""; $("replBtn").style.display = ""; $("openHeavy").style.display = "";
       log("connected to LiquidBounce (in-client) — projects persist on disk; run/hot-reload/debug enabled", "d");
       // pull any projects saved on disk (durable across CEF sessions) into the tabs
       try {
@@ -1000,6 +1000,21 @@ require(["vs/editor/editor.main"], async () => {
     } else log("✗ load failed: " + (res.error || "?"), "e");
   }
   $("runClient").onclick = async () => { $("runClient").disabled = true; try { await loadToClient(); } catch (e) { log("✗ run-in-client failed: " + (e && e.message || e), "e"); } finally { $("runClient").disabled = false; } };
+
+  // Open the current project in the heavy (full VS Code) editor. Persists it to
+  // the host first (the heavy editor sources the SAME project from the bridge via
+  // /api/projects), then opens the heavy host with ?project=<id>. The heavy URL is
+  // configurable (localStorage "lb-ide:heavyUrl"); prompts once if unset.
+  $("openHeavy").onclick = async () => {
+    if (!proj) return;
+    let heavy = (localStorage.getItem("lb-ide:heavyUrl") || "").trim();
+    if (!heavy) { heavy = (prompt("Heavy editor URL:", "http://localhost:9900") || "").trim(); if (!heavy) return; localStorage.setItem("lb-ide:heavyUrl", heavy); }
+    try { await apiFetch("api/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(proj) }); }
+    catch (e) { log("✗ couldn't persist project to host before opening heavy: " + (e && e.message || e), "e"); return; }
+    const url = heavy.replace(/\/+$/, "") + "/?project=" + encodeURIComponent(proj.id);
+    log("opening in heavy editor: " + url, "d");
+    window.open(url, "_blank");
+  };
 
   // hot reload: rebuild + reload in client on edits (debounced) when enabled
   hotReloadFn = () => { clearTimeout(hotTimer); hotTimer = setTimeout(() => { if (autoRun && bridgeOn) loadToClient().catch(() => {}); }, 900); };

@@ -45,6 +45,9 @@ class LbFs {
   async _provision(context) {
     const origin = `${context.extensionUri.scheme}://${context.extensionUri.authority}`;
     const cfg = await fetch(origin + "/lb/config").then((r) => r.json());
+    // The project id rides in the workspace folder authority (lbfs://<id>/) so the
+    // lean→heavy switch can target any project; fall back to the host's default.
+    const wantId = vscode.workspace.workspaceFolders?.[0]?.uri.authority || cfg.projectId;
     const bridge = createBridge({ base: cfg.bridgeBase, token: cfg.bridgeToken, fetchImpl: (...a) => fetch(...a) });
     const [projects, barrel, ambient] = await Promise.all([
       bridge.projects(),
@@ -52,13 +55,16 @@ class LbFs {
       fetch(origin + "/typings/ambient.d.ts").then((r) => r.text()),
     ]);
     this.bridge = bridge;
-    const proj = (Array.isArray(projects) ? projects : []).find((p) => p.id === cfg.projectId) || (Array.isArray(projects) ? projects[0] : null);
-    if (!proj) throw new Error("lbfs: project not found: " + cfg.projectId);
+    const proj = (Array.isArray(projects) ? projects : []).find((p) => p.id === wantId) || (Array.isArray(projects) ? projects[0] : null);
+    if (!proj) throw new Error("lbfs: project not found: " + wantId);
     this.project = { id: proj.id, name: proj.name, files: { ...proj.files } };
     // seed user project files
     for (const [p, content] of Object.entries(proj.files)) this._set("/" + p, enc.encode(content));
-    // seed provisioned typings + tsconfig (excluded from writeback)
-    for (const [p, content] of [["/barrel.d.ts", barrel], ["/ambient.d.ts", ambient], ["/tsconfig.json", TSCONFIG]]) {
+    // seed provisioned files (excluded from writeback): barrel typings, a tsconfig
+    // that pulls them in, and .vscode/settings.json so the lb-glue build command
+    // can reach the SAME bridge (build & run in client).
+    const settings = JSON.stringify({ "lb.hostBase": cfg.bridgeBase, "lb.hostToken": cfg.bridgeToken }, null, 2);
+    for (const [p, content] of [["/barrel.d.ts", barrel], ["/ambient.d.ts", ambient], ["/tsconfig.json", TSCONFIG], ["/.vscode/settings.json", settings]]) {
       this._set(p, enc.encode(content)); this.provisioned.add(p);
     }
   }
