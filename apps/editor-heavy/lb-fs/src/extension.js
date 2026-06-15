@@ -49,19 +49,32 @@ class LbFs {
     return this.ready;
   }
   async _provision(context) {
-    const origin = `${context.extensionUri.scheme}://${context.extensionUri.authority}`;
-    const cfg = await fetch(origin + "/lb/config").then((r) => r.json());
+    // Host root = origin + base path. The base is whatever prefix the extension is
+    // served under (".../fsext"), so the static build works under Caddy's
+    // handle_path prefix (e.g. /liquid-ide) AND at the root in dev.
+    const u = context.extensionUri;
+    const origin = `${u.scheme}://${u.authority}`;
+    const base = u.path.replace(/\/fsext\/?$/, "");
+    const root = origin + base;
+    const cfg = await fetch(root + "/lb/config").then((r) => r.json());
     // The project id rides in the workspace folder authority (lbfs://<id>/) so the
     // lean→heavy switch can target any project; fall back to the host's default.
     const wantId = vscode.workspace.workspaceFolders?.[0]?.uri.authority || cfg.projectId;
-    const bridge = createBridge({ base: cfg.bridgeBase, token: cfg.bridgeToken, fetchImpl: (...a) => fetch(...a) });
-    const [projects, barrel, ambient] = await Promise.all([
-      bridge.projects(),
-      fetch(origin + "/typings/barrel.d.ts").then((r) => r.text()),
-      fetch(origin + "/typings/ambient.d.ts").then((r) => r.text()),
+    const [barrel, ambient] = await Promise.all([
+      fetch(root + "/typings/barrel.d.ts").then((r) => r.text()),
+      fetch(root + "/typings/ambient.d.ts").then((r) => r.text()),
     ]);
-    this.bridge = bridge;
-    const proj = (Array.isArray(projects) ? projects : []).find((p) => p.id === wantId) || (Array.isArray(projects) ? projects[0] : null);
+    // Project source: the live ScriptManager bridge (read/write) when configured,
+    // else a static read-only project baked into the deploy (no bridge yet).
+    let proj;
+    if (cfg.bridgeBase) {
+      const bridge = createBridge({ base: cfg.bridgeBase, token: cfg.bridgeToken, fetchImpl: (...a) => fetch(...a) });
+      const projects = await bridge.projects();
+      this.bridge = bridge;
+      proj = (Array.isArray(projects) ? projects : []).find((p) => p.id === wantId) || (Array.isArray(projects) ? projects[0] : null);
+    } else {
+      proj = await fetch(root + "/lb/project.json").then((r) => r.json()).catch(() => null);  // read-only demo
+    }
     if (!proj) throw new Error("lbfs: project not found: " + wantId);
     this.project = { id: proj.id, name: proj.name, files: { ...proj.files } };
     // seed user project files
