@@ -19,7 +19,11 @@ require.config({ paths: { vs: BASE + "vs" } });
 // SSE stream, since EventSource can't set headers). The custom header forces a
 // CORS preflight that fails cross-origin, so other web pages can't drive the host.
 const API_TOKEN = new URLSearchParams(location.search).get("token") || "";
-function apiFetch(p, opts = {}) { opts.headers = { ...(opts.headers || {}), "X-IDE-Token": API_TOKEN }; return fetch(BASE + p, opts); }
+// The host-API bridge client lives in @lb-ide/core (shared with the heavy editor);
+// it's created at init. apiFetch routes through it once ready, with an identical
+// inline fallback for any call before the (dynamically-imported) bridge loads.
+let bridge = null;
+function apiFetch(p, opts = {}) { return bridge ? bridge.call(p, opts) : fetch(BASE + p, { ...opts, headers: { ...(opts.headers || {}), "X-IDE-Token": API_TOKEN } }); }
 
 // ---------------------------------------------------------------- persistence
 const DB = "lb-ide", P_STORE = "projects", M_STORE = "meta";
@@ -788,6 +792,8 @@ require(["vs/editor/editor.main"], async () => {
     fetch("templates.json").then((r) => r.json()).then((d) => d.categories),
     fetch("lb-inject.d.ts").then((r) => r.text()),
   ]);
+  // host-API bridge client (shared @lb-ide/core) — created once for /api/* calls.
+  bridge = (await import("./lb-ide-core/bridge.js")).createBridge({ base: BASE, token: API_TOKEN });
   // typings closure + the lean (setExtraLibs) adapter live in @lb-ide/core; the
   // heavy editor uses the same closure via the build-time barrel (gen-barrel.mjs).
   const { getClosure, toExtraLibs } = await import("./lb-ide-core/typings.js");
