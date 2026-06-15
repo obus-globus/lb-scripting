@@ -618,14 +618,14 @@ let esbuildReady = null;
 function initEsbuild() { if (!esbuildReady) esbuildReady = esbuild.initialize({ wasmURL: "esbuild.wasm" }); return esbuildReady; }
 async function ensureInjectBundle() { if (injectBundle == null) injectBundle = await fetch("lb-inject-bundled.js").then((r) => r.text()); return injectBundle; }
 
-// The esbuild build plugin (Java.type rewrite, lb-inject inlining, vfs) lives in
-// the shared @lb-ide/core package — single-sourced with the heavy editor. The
-// lean app is buildless, so we load the ESM lazily via dynamic import() (symlinked
-// into public/lb-ide-core by scripts/link-public.mjs).
-let _buildPlugins = null;
-async function getBuildPlugins() {
-  if (!_buildPlugins) _buildPlugins = (await import("./lb-ide-core/build-plugin.js")).buildPlugins;
-  return _buildPlugins;
+// The build pipeline (esbuild-wasm orchestration + the Java.type-rewrite plugin)
+// lives in the shared @lb-ide/core package — single-sourced with the heavy editor.
+// The lean app is buildless, so we load the ESM lazily via dynamic import()
+// (symlinked into public/lb-ide-core by scripts/link-public.mjs).
+let _coreBuild = null;
+async function coreBuild() {
+  if (!_coreBuild) _coreBuild = await import("./lb-ide-core/build.js");
+  return _coreBuild;
 }
 const entryPoint = () => ("main.ts" in proj.files ? "main.ts" : "main.js" in proj.files ? "main.js" : Object.keys(proj.files)[0]);
 
@@ -666,25 +666,14 @@ async function build() {
     if (error) { log("✗ " + error, "e"); setStatus("build failed"); return; }
     const cfg = { ...DEFAULT_BUILD, ...(config || {}) };
     await initEsbuild();
-    const buildPlugins = await getBuildPlugins();
+    const { runBuild } = await coreBuild();
     if (cfg.inlineLbInject !== false && Object.values(proj.files).some((c) => /from\s+["']lb-inject["']/.test(c))) await ensureInjectBundle();
     const entry = cfg.entry && cfg.entry in proj.files ? cfg.entry : entryPoint();
-    const sourcemap = cfg.sourcemap === true ? "inline" : (cfg.sourcemap || false);
-    const res = await esbuild.build({
-      entryPoints: [entry], bundle: true, write: false, legalComments: "none",
-      format: cfg.format || "esm", target: cfg.target || "es2022", minify: !!cfg.minify,
-      sourcemap, keepNames: !!cfg.keepNames, treeShaking: cfg.treeShaking !== false,
-      charset: cfg.charset || "utf8", define: cfg.define || {}, drop: cfg.drop || [], pure: cfg.pure || [],
-      banner: cfg.banner ? { js: cfg.banner } : undefined, footer: cfg.footer ? { js: cfg.footer } : undefined,
-      plugins: [buildPlugins(proj.files, cfg, injectBundle)],
-    });
-    const outJs = res.outputFiles.find((f) => !f.path.endsWith(".map")) || res.outputFiles[0];
-    const code = outJs.text;
-    const built = { name: entry.replace(/\.(ts|js)$/, "") + ".mjs", code };
-    builds.set(proj.id, built);
+    const built = await runBuild({ esbuild, files: proj.files, cfg, entry, injectBundle });
+    builds.set(proj.id, { name: built.name, code: built.code });
     syncDownloadBtn();
-    log("✓ built " + built.name + " — " + code.length + " bytes" + (cfg.minify ? " (minified)" : ""), "s");
-    for (const w of res.warnings) log("warn: " + w.text, "d");
+    log("✓ built " + built.name + " — " + built.code.length + " bytes" + (cfg.minify ? " (minified)" : ""), "s");
+    for (const w of built.warnings) log("warn: " + w.text, "d");
     setStatus("build ok");
   } catch (e) {
     const errs = (e && e.errors) || [];
