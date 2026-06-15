@@ -788,12 +788,16 @@ require(["vs/editor/editor.main"], async () => {
     fetch("templates.json").then((r) => r.json()).then((d) => d.categories),
     fetch("lb-inject.d.ts").then((r) => r.text()),
   ]);
-  const bundle = await fetch("typings-bundle.json").then((r) => r.json());
-  baseExtraLibs = Object.entries(bundle).map(([p, content]) => ({ content, filePath: "file:///" + p }));
-  baseExtraLibs.push({ content: INJECT_DTS, filePath: "file:///node_modules/@types/lb-inject/index.d.ts" });
-  // `log(...)` is injected by the in-client host into REPL snippets — it streams
-  // output live (incl. from async callbacks) to the REPL panel.
-  baseExtraLibs.push({ content: "/** REPL/in-client only: stream a value to the live REPL log panel. */\ndeclare function log(...args: any[]): void;", filePath: "file:///node_modules/@types/lb-repl/index.d.ts" });
+  // typings closure + the lean (setExtraLibs) adapter live in @lb-ide/core; the
+  // heavy editor uses the same closure via the build-time barrel (gen-barrel.mjs).
+  const { getClosure, toExtraLibs } = await import("./lb-ide-core/typings.js");
+  const closure = await getClosure("typings-bundle.json");
+  baseExtraLibs = toExtraLibs(closure, [
+    { content: INJECT_DTS, filePath: "file:///node_modules/@types/lb-inject/index.d.ts" },
+    // `log(...)` is injected by the in-client host into REPL snippets — it streams
+    // output live (incl. from async callbacks) to the REPL panel.
+    { content: "/** REPL/in-client only: stream a value to the live REPL log panel. */\ndeclare function log(...args: any[]): void;", filePath: "file:///node_modules/@types/lb-repl/index.d.ts" },
+  ]);
   configureTS(monaco.languages.typescript.typescriptDefaults, false);
   configureTS(monaco.languages.typescript.javascriptDefaults, true);
 
