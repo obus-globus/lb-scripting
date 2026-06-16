@@ -558,16 +558,18 @@ function showTemplateMenu() {
     row.onclick = () => openSub(cat, row);
     menu.appendChild(row);
   }
-  // Save-as-template (create-own): turn the current project into a reusable user
-  // template on the bridge. Only when connected (templates live on the host).
-  if (bridgeOn) {
+  // Footer actions: save-as-template (create-own, needs a bridge) + manage templates
+  // (list/delete/duplicate + manual fetch; works offline for fetched templates).
+  const footer = (text, onClick) => {
     const sep = document.createElement("div"); sep.className = "sep"; menu.appendChild(sep);
     const row = document.createElement("div"); row.className = "row";
-    const label = document.createElement("span"); label.textContent = "Save current as template…"; row.appendChild(label);
+    const label = document.createElement("span"); label.textContent = text; row.appendChild(label);
     row.onmouseenter = () => { sub.style.display = "none"; [...menu.querySelectorAll(".row")].forEach((r) => r.classList.remove("active")); };
-    row.onclick = () => { hideTemplateMenu(); saveCurrentAsTemplate(); };
+    row.onclick = () => { hideTemplateMenu(); onClick(); };
     menu.appendChild(row);
-  }
+  };
+  if (bridgeOn) footer("Save current as template…", saveCurrentAsTemplate);
+  footer("Manage templates…", openTemplateManager);
   const r = $("newProj").getBoundingClientRect();
   menu.style.left = Math.max(6, r.left) + "px"; menu.style.top = r.bottom + 4 + "px"; menu.style.display = "block";
 }
@@ -594,6 +596,43 @@ async function saveCurrentAsTemplate() {
     if (res && res.ok) { await refreshTemplates(); log("✓ saved template '" + name + "' (id " + (res.id || id) + ")", "s"); }
     else log("✗ save template failed", "e");
   } catch (e) { log("✗ save template failed: " + (e && e.message || e), "e"); }
+}
+
+// Template/source manager: a popup listing the default source (with a manual
+// "fetch latest"), the user's own templates (duplicate & edit / delete), and the
+// fetched templates (duplicate & edit). Anchored to the New button.
+function openTemplateManager() {
+  showPop($("newProj"), (el) => {
+    const head = (txt) => { const d = document.createElement("div"); d.className = "item"; d.style.cssText = "cursor:default;font-size:11px;color:var(--fgdim);text-transform:uppercase;letter-spacing:.04em"; d.textContent = txt; el.appendChild(d); };
+    const sep = () => { const s = document.createElement("div"); s.className = "sep"; el.appendChild(s); };
+    // default source + manual refresh
+    head("Source");
+    el.appendChild(popItem("Fetch latest from " + TEMPLATE_SOURCE.name, async () => {
+      const r = await fetchTemplateSource();
+      log(r.ok ? ("fetched " + r.count + " template(s) from " + TEMPLATE_SOURCE.name) : ("template fetch failed: " + (r.error || "?")), r.ok ? "s" : "e");
+    }, TEMPLATE_SOURCE.id));
+    // your templates (duplicate + delete)
+    sep(); head("Your templates");
+    if (!userTemplates.length) { const d = document.createElement("div"); d.className = "item"; d.style.cssText = "cursor:default;color:var(--fgdim)"; d.textContent = bridgeOn ? "(none — use “Save current as template”)" : "(connect a client to save templates)"; el.appendChild(d); }
+    for (const t of userTemplates) {
+      const row = popItem(t.name, () => createProject(t.id), "duplicate & edit");
+      const del = document.createElement("span"); del.textContent = "✕"; del.title = "delete template"; del.style.cssText = "margin-left:auto;padding-left:10px;color:var(--fgdim)";
+      del.onclick = (e) => { e.stopPropagation(); deleteUserTemplate(t.id, t.name); };
+      row.appendChild(del);
+      el.appendChild(row);
+    }
+    // fetched templates (duplicate only — managed by re-fetch)
+    if (fetchedTemplates.length) {
+      sep(); head("From " + TEMPLATE_SOURCE.name);
+      for (const t of fetchedTemplates) el.appendChild(popItem(t.name, () => createProject(t.id), "duplicate & edit"));
+    }
+  });
+}
+async function deleteUserTemplate(id, name) {
+  if (!bridge || !bridgeOn) return;
+  if (!confirm("Delete template “" + (name || id) + "”?")) return;
+  try { await bridge.deleteTemplate(id); await refreshTemplates(); log("deleted template " + id, "d"); openTemplateManager(); }
+  catch (e) { log("delete template failed: " + (e && e.message || e), "e"); }
 }
 
 // "Open" menu: a cascading picker (mirrors showTemplateMenu) with two categories —
