@@ -447,6 +447,8 @@ function renderTabs() {
   }
   const plus = document.createElement("button"); plus.id = "newProj"; plus.textContent = "+ new"; plus.onclick = showTemplateMenu;
   wrap.appendChild(plus);
+  const open = document.createElement("button"); open.id = "openProj"; open.textContent = "open ▾"; open.title = "open a project or installed script"; open.onclick = showOpenMenu;
+  wrap.appendChild(open);
   syncDownloadBtn(); // the build/download is per-project — reflect the current one
   // tab names for non-current projects are their ids until loaded; fetch names
   hydrateTabNames();
@@ -491,41 +493,78 @@ function showTemplateMenu() {
     row.onclick = () => openSub(cat, row);
     menu.appendChild(row);
   }
-  if (bridgeOn) {
-    const sep = document.createElement("div"); sep.className = "sep"; menu.appendChild(sep);
-    const row = document.createElement("div"); row.className = "row";
-    row.innerHTML = "<span>Open installed script…</span>";
-    row.onmouseenter = () => { sub.style.display = "none"; [...menu.querySelectorAll(".row")].forEach((r) => r.classList.remove("active")); };
-    row.onclick = () => { hideTemplateMenu(); openInstalledScriptPicker(); };
-    menu.appendChild(row);
-  }
   const r = $("newProj").getBoundingClientRect();
   menu.style.left = Math.max(6, r.left) + "px"; menu.style.top = r.bottom + 4 + "px"; menu.style.display = "block";
 }
 
-// Bridge: list installed scripts, open the chosen one as a single-file project.
-async function openInstalledScriptPicker() {
-  let names = [];
-  try { names = await apiFetch("api/scripts").then((r) => r.json()); } catch { /* */ }
-  if (!names || !names.length) { log("no installed scripts found", "d"); return; }
-  const menu = $("tmplMenu"); menu.innerHTML = "";
-  for (const name of names) {
-    const item = document.createElement("div"); item.className = "item";
-    const b = document.createElement("b"); b.textContent = name; // textContent: no HTML injection from filenames
-    const s = document.createElement("span"); s.textContent = "open from LiquidBounce scripts/";
-    item.append(b, s);
-    item.onclick = async () => {
-      menu.style.display = "none";
-      try {
-        const res = await apiFetch("api/script?name=" + encodeURIComponent(name)).then((r) => r.json());
-        if (!res.ok) { log("could not read " + name, "e"); return; }
-        await openAsProject(name, res.content);
-      } catch (e) { log("open failed: " + (e && e.message || e), "e"); }
-    };
-    menu.appendChild(item);
-  }
-  const r = $("newProj").getBoundingClientRect();
+// "Open" menu: a cascading picker (mirrors showTemplateMenu) with two categories —
+// Projects (your editable IDE projects, the local/bridge-synced sources) and
+// Installed scripts (the LiquidBounce scripts/ folder, via the bridge). Anchored to
+// the "open �myproj" button; lives in the SAME tmplMenu/tmplSub DOM.
+function showOpenMenu() {
+  const menu = $("tmplMenu"), sub = $("tmplSub"); menu.innerHTML = ""; sub.style.display = "none";
+  const positionSub = (rowEl) => {
+    const mr = menu.getBoundingClientRect(), rr = rowEl.getBoundingClientRect();
+    sub.style.display = "block";
+    const w = sub.offsetWidth || 230;
+    let left = mr.right + 2; if (left + w > window.innerWidth - 6) left = mr.left - w - 2;
+    sub.style.left = Math.max(6, left) + "px";
+    sub.style.top = Math.min(rr.top, window.innerHeight - sub.offsetHeight - 6) + "px";
+  };
+  const activate = (rowEl) => { [...menu.querySelectorAll(".row")].forEach((r) => r.classList.remove("active")); rowEl.classList.add("active"); };
+  const subItem = (title, desc, onClick) => {
+    const it = document.createElement("div"); it.className = "item";
+    const b = document.createElement("b"); b.textContent = title;            // textContent: no HTML injection from names
+    it.appendChild(b);
+    if (desc) { const s = document.createElement("span"); s.textContent = desc; it.appendChild(s); }
+    it.onclick = () => { hideTemplateMenu(); onClick(); };
+    return it;
+  };
+  // Projects category: switch to any open project other than the current one.
+  const openProjects = async (rowEl) => {
+    activate(rowEl); sub.innerHTML = ""; sub.appendChild(subItem("loading…", "", () => {}));
+    positionSub(rowEl);
+    const others = meta.ids.filter((id) => id !== meta.current);
+    const names = await Promise.all(others.map((id) => dbGet(P_STORE, id).then((p) => (p && p.name) || id).catch(() => id)));
+    sub.innerHTML = "";
+    if (!others.length) sub.appendChild(subItem("(no other projects)", "", () => {}));
+    else others.forEach((id, i) => sub.appendChild(subItem(names[i], "switch project", () => loadProject(id))));
+    positionSub(rowEl);
+  };
+  // Installed scripts category: list the scripts/ folder via the bridge, open one
+  // as an editable single-file project (unchanged behavior).
+  const openInstalled = async (rowEl) => {
+    activate(rowEl); sub.innerHTML = ""; sub.appendChild(subItem("loading…", "", () => {}));
+    positionSub(rowEl);
+    let names = [];
+    try { names = (bridge ? await bridge.scripts() : await apiFetch("api/scripts").then((r) => r.json())) || []; } catch { /* */ }
+    sub.innerHTML = "";
+    if (!names.length) sub.appendChild(subItem("(no installed scripts)", "", () => {}));
+    else for (const name of names) {
+      sub.appendChild(subItem(name, "open from LiquidBounce scripts/", () => openInstalledScript(name)));
+    }
+    positionSub(rowEl);
+  };
+  const addRow = (label, onOpen) => {
+    const row = document.createElement("div"); row.className = "row";
+    row.innerHTML = "<span>" + label + "</span><span class='arrow'>▸</span>";
+    row.onmouseenter = () => onOpen(row);
+    row.onclick = () => onOpen(row);
+    menu.appendChild(row);
+  };
+  addRow("Projects", openProjects);
+  if (bridgeOn) addRow("Installed scripts", openInstalled);
+  const r = $("openProj").getBoundingClientRect();
   menu.style.left = Math.max(6, r.left) + "px"; menu.style.top = r.bottom + 4 + "px"; menu.style.display = "block";
+}
+
+// Bridge: read one installed script, open it as an editable single-file project.
+async function openInstalledScript(name) {
+  try {
+    const res = bridge ? await bridge.script(name) : await apiFetch("api/script?name=" + encodeURIComponent(name)).then((r) => r.json());
+    if (!res || !res.ok) { log("could not read " + name, "e"); return; }
+    await openInstalledScriptProject(name, res.content);
+  } catch (e) { log("open failed: " + (e && e.message || e), "e"); }
 }
 
 // Create a single-file project from raw content (used for installed scripts).
@@ -538,8 +577,7 @@ async function openInstalledScriptProject(filename, content) {
   disposeModels(); ensureModel(entry);
   location.hash = proj.id; openFile(entry); renderTabs();
 }
-const openAsProject = openInstalledScriptProject;
-document.addEventListener("click", (e) => { const m = $("tmplMenu"), s = $("tmplSub"); if (m.style.display === "block" && !m.contains(e.target) && !s.contains(e.target) && e.target.id !== "newProj") hideTemplateMenu(); });
+document.addEventListener("click", (e) => { const m = $("tmplMenu"), s = $("tmplSub"); if (m.style.display === "block" && !m.contains(e.target) && !s.contains(e.target) && e.target.id !== "newProj" && e.target.id !== "openProj") hideTemplateMenu(); });
 
 // ---------------------------------------------------------------- share links
 // Encode the current project into the URL hash (#share=<gzip+base64url>) so a
