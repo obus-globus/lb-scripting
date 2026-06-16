@@ -1,5 +1,5 @@
 // LB heavy-mode glue extension (web). The thin layer wiring VS Code's command/UI
-// to the SHARED @lb-ide/core pipeline — it consumes core, never reimplements it.
+// to the SHARED @lb-ide/core pipeline - it consumes core, never reimplements it.
 //
 // buildAndRun: read the workspace's script files → run @lb-ide/core's runBuild
 // (esbuild-wasm, in-thread under cross-origin isolation) → (next) hand the built
@@ -52,9 +52,7 @@ async function readWorkspaceFiles(root) {
 
 export function activate(context) {
   const ch = vscode.window.createOutputChannel("LB Glue");
-  ch.appendLine("[lb-glue] activated");
   context.subscriptions.push(vscode.commands.registerCommand("lb.buildAndRun", async () => {
-    ch.appendLine("[lb-glue] buildAndRun invoked");
     try {
       const folders = vscode.workspace.workspaceFolders;
       if (!folders || !folders.length) { vscode.window.showErrorMessage("LB-GLUE: no workspace folder open"); return; }
@@ -71,7 +69,7 @@ export function activate(context) {
       if (bcfg.inlineLbInject !== false && Object.values(files).some((c) => /from\s+["']lb-inject["']/.test(c))) injectBundle = await readAsset(context, "lb-inject-bundled.js");
       // runBuild merges DEFAULT_BUILD again and resolves cfg.entry via resolveEntry.
       const built = await runBuild({ esbuild, files, cfg: bcfg, injectBundle });
-      ch.appendLine(`[lb-glue] built ${built.name} — ${built.code.length} bytes`);
+      ch.appendLine(`[lb-glue] built ${built.name} - ${built.code.length} bytes`);
 
       // Hand the built .mjs to the in-client ScriptManager host (if configured).
       // Web-only with no live host → base unset → build-only. The bridge is the

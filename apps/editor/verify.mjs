@@ -8,6 +8,7 @@ import { existsSync } from "node:fs";
 import zlib from "node:zlib";
 import puppeteer from "puppeteer-core";
 import { createServer } from "./serve.mjs";
+import "./scripts/check-default-build.mjs"; // fails fast if DEFAULT_BUILD drifts from @lb-ide/core
 
 const server = createServer();
 await new Promise((r) => server.listen(0, r));

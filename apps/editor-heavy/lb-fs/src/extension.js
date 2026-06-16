@@ -1,12 +1,12 @@
 // LB heavy-mode workspace FILE SYSTEM PROVIDER (web). Provisions the heavy editor's
-// workspace from the SAME ScriptManager bridge the lean editor uses, so both modes
-// edit the same project — not a fixture.
+// workspace from the same ScriptManager bridge the lean editor uses, so both modes
+// edit the one project rather than a fixture.
 //
 // On activation (onFileSystem:lbfs) it:
 //   1. derives the heavy host origin from its own extensionUri, fetches /lb/config
 //      ({bridgeBase, bridgeToken, projectId}),
-//   2. pulls the project from the bridge (createBridge(...).projects() → by id) —
-//      same token-headered API lean's save writes to,
+//   2. pulls the project from the bridge (createBridge(...).projects(), by id),
+//      the same token-headered API lean's save writes to,
 //   3. seeds an in-memory FS with the project files + the barrel typings
 //      (barrel.d.ts/ambient.d.ts fetched from the host) + a tsconfig that includes
 //      them (full @wunk intellisense with zero per-file FS probing),
@@ -39,7 +39,7 @@ class LbFs {
 
   // ---- provisioning ---------------------------------------------------------
   async init(context) {
-    // Never leave `ready` rejected — a rejected promise would make every stat/
+    // Never leave `ready` rejected - a rejected promise would make every stat/
     // readFile throw forever (unrecoverable broken window). On failure, surface
     // the error and resolve with whatever was seeded (at worst an empty root).
     if (!this.ready) this.ready = this._provision(context).catch((e) => {
@@ -58,8 +58,10 @@ class LbFs {
     const root = origin + base;
     const cfg = await fetch(root + "/lb/config").then((r) => r.json());
     // The project id rides in the workspace folder authority (lbfs://<id>/) so the
-    // lean→heavy switch can target any project; fall back to the host's default.
-    const wantId = vscode.workspace.workspaceFolders?.[0]?.uri.authority || cfg.projectId;
+    // lean-to-heavy switch can target any project; fall back to the host's default.
+    // Constrain it to the project-id charset (it keys bridge lookups + writeback).
+    let wantId = vscode.workspace.workspaceFolders?.[0]?.uri.authority || cfg.projectId || "";
+    if (!/^[a-zA-Z0-9_-]+$/.test(wantId)) wantId = cfg.projectId || "";
     const [barrel, ambient] = await Promise.all([
       fetch(root + "/typings/barrel.d.ts").then((r) => r.text()),
       fetch(root + "/typings/ambient.d.ts").then((r) => r.text()),
@@ -133,22 +135,24 @@ class LbFs {
     this._emitter.fire([{ type: existed ? vscode.FileChangeType.Changed : vscode.FileChangeType.Created, uri }]);
     this._scheduleSave();
   }
+  _forget(path) { this.files.delete(path); this.provisioned.delete(path); }
+  _move(from, to) { const v = this.files.get(from); this.files.delete(from); this.files.set(to, v); if (this.provisioned.delete(from)) this.provisioned.add(to); }
   async delete(uri) {
     await this.ready;
-    // delete the file, or a directory (all keys under <path>/).
-    if (this.files.has(uri.path)) this.files.delete(uri.path);
-    else { const pre = uri.path + "/"; for (const k of [...this.files.keys()]) if (k.startsWith(pre)) this.files.delete(k); }
+    // A file, or a directory (every key under <path>/).
+    if (this.files.has(uri.path)) this._forget(uri.path);
+    else { const pre = uri.path + "/"; for (const k of [...this.files.keys()]) if (k.startsWith(pre)) this._forget(k); }
     this._emitter.fire([{ type: vscode.FileChangeType.Deleted, uri }]);
     this._scheduleSave();
   }
   async rename(oldUri, newUri) {
     await this.ready;
-    const f = this.files.get(oldUri.path);
-    if (f) { this.files.delete(oldUri.path); this.files.set(newUri.path, f); }
-    else {
-      // directory rename → move every child key.
+    // Keep the provisioned set in lockstep so renamed typings/tsconfig aren't
+    // persisted into the project (and renamed user files become writeback-eligible).
+    if (this.files.has(oldUri.path)) this._move(oldUri.path, newUri.path);
+    else { // directory rename: move every child key
       const pre = oldUri.path + "/";
-      for (const k of [...this.files.keys()]) if (k.startsWith(pre)) { const v = this.files.get(k); this.files.delete(k); this.files.set(newUri.path + k.slice(oldUri.path.length), v); }
+      for (const k of [...this.files.keys()]) if (k.startsWith(pre)) this._move(k, newUri.path + k.slice(oldUri.path.length));
     }
     this._emitter.fire([{ type: vscode.FileChangeType.Deleted, uri: oldUri }, { type: vscode.FileChangeType.Created, uri: newUri }]);
     this._scheduleSave();

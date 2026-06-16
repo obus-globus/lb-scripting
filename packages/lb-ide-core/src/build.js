@@ -1,4 +1,4 @@
-// @lb-ide/core — esbuild-wasm build orchestration (mode-agnostic, pure).
+// @lb-ide/core - esbuild-wasm build orchestration (mode-agnostic, pure).
 //
 // Runs the in-browser esbuild bundle for an LB script project and returns the
 // built `.mjs`. The caller supplies the esbuild instance (the lean editor uses

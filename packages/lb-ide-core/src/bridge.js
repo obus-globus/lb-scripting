@@ -1,4 +1,4 @@
-// @lb-ide/core — the in-client ScriptManager bridge client (mode-agnostic).
+// @lb-ide/core - the in-client ScriptManager bridge client (mode-agnostic).
 //
 // Both editor modes talk to the SAME LB host API (the GraalJS-script in-process
 // server): a per-session token is sent as the `X-IDE-Token` header on every
@@ -23,7 +23,7 @@ export function createBridge({ base = "", token = "", fetchImpl = fetch } = {}) 
     load: ({ name, mjs, debug }) => json("api/load", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, mjs, debug }) }),
     /** Eval a snippet in the client (last expression returned). */
     repl: (code) => json("api/repl", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) }),
-    /** URL for the live-log SSE stream (token in the query — EventSource can't set headers). */
+    /** URL for the live-log SSE stream (token in the query - EventSource can't set headers). */
     replStreamUrl: () => base + "api/repl/stream?token=" + encodeURIComponent(token),
   };
 }

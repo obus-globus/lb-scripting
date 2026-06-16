@@ -28,7 +28,7 @@ await build({
 });
 
 // esbuild-wasm browser build picks the browser worker, but the extension feeds the
-// .wasm bytes itself (wasmModule) — stage the binary + the lb-inject runtime.
+// .wasm bytes itself (wasmModule) - stage the binary + the lb-inject runtime.
 const editorPub = join(repo, "apps/editor/node_modules/esbuild-wasm/esbuild.wasm");
 cpSync(editorPub, join(dist, "esbuild.wasm"));
 cpSync(join(repo, "apps/editor/public/lb-inject-bundled.js"), join(dist, "lb-inject-bundled.js"));

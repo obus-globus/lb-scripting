@@ -1,4 +1,4 @@
-// @lb-ide/core — the esbuild-wasm build plugin (mode-agnostic).
+// @lb-ide/core - the esbuild-wasm build plugin (mode-agnostic).
 //
 // Rewrites the LB script pipeline at build time:
 //   - `import { X } from "@wunk/lb-script-api-types/types/<fqcn>"`  →  `Java.type("<fqcn>")`

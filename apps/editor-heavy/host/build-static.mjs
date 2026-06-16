@@ -1,4 +1,4 @@
-// Build a STATIC, deployable heavy-mode bundle (no node server in prod — COI comes
+// Build a STATIC, deployable heavy-mode bundle (no node server in prod - COI comes
 // from the fronting web server, e.g. Caddy). Produces dist/:
 //   index.html        baked workbench shell (config inlined; a tiny inline script
 //                     fixes extension/folder URIs from window.location so the build
@@ -47,7 +47,7 @@ const demo = {
   id: PROJECT_ID, name: "Heavy Demo",
   files: {
     "main.ts": `import { Vec3 } from "@wunk/lb-script-api-types/types/net/minecraft/world/phys/Vec3";\n` +
-      `// Full @wunk intellisense + an in-browser esbuild build — no install, no server.\n` +
+      `// Full @wunk intellisense + an in-browser esbuild build - no install, no server.\n` +
       `const script = registerScript({ name: "HeavyDemo", version: "1.0.0", authors: ["you"] });\n` +
       `const player = mc.player;                 // ambient global, fully typed\n` +
       `const pos: Vec3 = null as unknown as Vec3;\n` +
@@ -56,7 +56,7 @@ const demo = {
 };
 writeFileSync(path.join(OUT, "lb", "project.json"), JSON.stringify(demo, null, 2));
 
-// 5) index.html — bake the workbench config + a runtime origin-fixup.
+// 5) index.html - bake the workbench config + a runtime origin-fixup.
 const bootstrap = readFileSync(path.join(HERE, "web", "bootstrap.js"), "utf8")
   .replace("./workbench.api", `${BASE}/out/vs/workbench/workbench.web.main.internal.js`);
 const config = {

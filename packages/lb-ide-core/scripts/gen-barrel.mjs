@@ -5,14 +5,14 @@
 //
 // Two sources (the closure → a { rel → content } map either way):
 //   --wunk   <closure-dir>            walk a directory of .d.ts files (the spike closure)
-//   --bundle <typings-bundle.json>    read the lean editor's typings bundle — the SAME
+//   --bundle <typings-bundle.json>    read the lean editor's typings bundle - the SAME
 //                                     transitive closure it ships, generated from the
 //                                     PINNED @wunk version (apps/editor/scripts/gen-typings.mjs).
 //                                     Keys are "node_modules/@wunk/lb-script-api-types/<rel>".
 // Usage:
 //   node gen-barrel.mjs (--wunk <dir> | --bundle <json>) --out <barrel.d.ts> [--pkg <name>] [--ambient <rel>]
 //   (env LB_WUNK / LB_BUNDLE / LB_BARREL_OUT / LB_PKG / LB_AMBIENT also work). The ambient
-//   module is written as a SEPARATE <out-dir>/ambient.d.ts (NOT concatenated — that breaks
+//   module is written as a SEPARATE <out-dir>/ambient.d.ts (NOT concatenated - that breaks
 //   the barrel's script-ness). --ambient is the closure-relative path to the globals d.ts
 //   (default ambient/ambient.d.ts); pass "" to skip if the closure has no globals file.
 import fs from 'fs';
@@ -81,10 +81,10 @@ for (const rel of [...closure.keys()].sort()) {
   const fileDir = path.posix.dirname(rel);
   const rewritten = rewriteImports(content, fileDir);
   if (rel === AMBIENT_REL) {
-    // Emit ambient.d.ts as a SEPARATE module file (NOT concatenated into the barrel —
+    // Emit ambient.d.ts as a SEPARATE module file (NOT concatenated into the barrel -
     // that's what broke the barrel's script-ness). It keeps its top-level imports
     // (rewritten to @wunk specifiers, which resolve to the barrel's ambient modules with
-    // no FS) and its `declare global {}` — the correct pattern for a module that declares
+    // no FS) and its `declare global {}` - the correct pattern for a module that declares
     // globals. main.ts references both files.
     ambientTop = rewritten;
     continue;

@@ -1,14 +1,12 @@
-// LB heavy-mode static host — the deployable web-only serving layer for the
-// from-source vscode-web bundle. Replaces @vscode/test-web (a dev harness) with a
-// dependency-free node server that:
+// LB heavy-mode dev host for the from-source vscode-web bundle. DEV ONLY: prod is
+// the static `build-static.mjs` output served by Caddy (which sets COI). This
+// dependency-free node server is the dev equivalent:
 //   - serves the packaged vscode-web bundle as static files,
-//   - renders the workbench shell at `/` with the correct WORKBENCH_WEB_CONFIGURATION
-//     (and the build's actual CSS name — test-web's 404s),
-//   - sets cross-origin-isolation headers (COOP/COEP) so SharedArrayBuffer + the
+//   - renders the workbench shell at `/` with the WORKBENCH_WEB_CONFIGURATION
+//     (linking the build's actual CSS name, workbench.web.main.internal.css),
+//   - sets cross-origin-isolation headers (COOP/COEP) so SharedArrayBuffer and the
 //     web tsserver work,
-//   - mounts the lb-glue extension as a development extension.
-// The workspace filesystem provider (project files + barrel typings) is added in a
-// later step; this layer is the serving contract.
+//   - mounts lb-glue (build) + lb-fs (workspace) and serves /lb/config + /typings.
 import http from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { createReadStream } from "node:fs";
@@ -120,7 +118,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === "/lb/config") {
       // NOTE (trust boundary): this returns bridgeToken to anything on this origin
       // (incl. workbench extensions/webviews). The token drives /api/load (runs code
-      // in the client), so the heavy origin must be trusted — same posture as the
+      // in the client), so the heavy origin must be trusted - same posture as the
       // lean editor, which also holds the token in-page. Don't host untrusted
       // extensions/webviews on this origin.
       res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
