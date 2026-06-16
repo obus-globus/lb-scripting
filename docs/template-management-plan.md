@@ -1,7 +1,31 @@
-# Template Management — Plan (PROPOSAL, not yet greenlit)
+# Template Management — Plan (v1 GREENLIT)
 
-Status: **draft for review.** No code until scorpion greenlights. Companion to
+Status: **building v1** per the decisions below. Companion to
 `docs/dual-mode-state.md`. Tracks task #15 ("template-management").
+
+## v1 decisions (GREENLIT — scorpion + Koda)
+
+- **Multi-source architecture, single source exposed.** Build the source layer so it
+  *supports* multiple/custom repos, but **do NOT expose an add-custom-repo UI** in v1.
+  The **untrusted-source malicious-code warning UX is the gate** that must land before
+  custom repos are ever exposed — designed for, not shipped. v1 contacts only the one
+  default source.
+- **Default source = a configurable constant**, placeholder URL until scorpion supplies
+  the real one (our deploy's published `templates.json`, or a GitHub repo). Trivial to set.
+- **Editor-fetch only** — no host-fetch in v1 → **zero SSRF surface** (§3.3 guard is
+  not built in v1; it's the gate for the deferred host-fetch).
+- **Strip** build-config (`lbbuild.config.json`) + `.vscode/` + dotfiles from
+  fetched/user templates on import — always, even though v1's single source is trusted
+  (defense-in-depth + the foundation the trust model needs before custom repos).
+- **No git sources** (manifest + raw files). **Lean-only** (heavy deferred).
+- **create-own** ("Save as template") + **clone-and-modify** ("Duplicate & edit") —
+  both local, no fetch.
+- **Provenance "review before running" notice** on imported templates now; the full
+  untrusted-source warning is the deferred custom-repo gate.
+
+Build in the ~6 reviewable steps in §5 (lean green each, sub-agent review at the
+boundary). The sections below are the full design; where v1 narrows it, the decision
+above wins.
 
 ## 0. Problem & goal
 
