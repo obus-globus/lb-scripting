@@ -10,9 +10,9 @@
 //     editor can't fetch http://localhost (mixed content), but a WebSocket to
 //     localhost works. Token is sent in an auth frame (never in the URL).
 //
-// The high-level methods (ping/projects/save/load/repl) resolve to parsed JSON on
-// both transports; the HTTP bridge additionally exposes `call` (raw Response, used
-// by the lean editor's apiFetch) and `replStreamUrl`.
+// The high-level methods (ping/projects/scripts/templates/save/load/repl + subscribeLog)
+// resolve to parsed JSON on both transports; the HTTP bridge additionally exposes
+// `call` (raw Response, used by the lean editor's apiFetch).
 //
 // @param {{base?:string, token?:string, fetchImpl?:typeof fetch, WebSocketImpl?:any}} o
 export function createBridge(o = {}) {
