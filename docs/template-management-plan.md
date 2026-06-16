@@ -203,7 +203,7 @@ needed — these touch files, not run code):
 
 - `templates()` → list user/fetched template docs (`GET /api/templates`).
 - `template(id)` → one template doc (`GET /api/template?id=`).
-- `saveTemplate(doc)` → write `lb-ide/templates/<id>.json` (`POST /api/template`).
+- `saveTemplate(doc)` → write `lb-ide/templates/<id>.json` (`POST /api/template/save`).
 - `deleteTemplate(id)` → remove it (`POST /api/template/delete` or `DELETE`).
 - **(if host-fetch)** `fetchTemplates(sourceId|url)` → host fetches the manifest +
   files, validates (§3), writes them, returns the imported set

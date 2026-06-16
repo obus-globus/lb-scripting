@@ -140,8 +140,9 @@ sub-agent review clean (self-contained ESM, behavior byte-identical). Modules in
 - `typings.js` — `getClosure(url, fetchImpl)` + `toExtraLibs(closure, extras)`
   (lean RUNTIME adapter). Heavy's adapter is BUILD-TIME (the barrel via
   `gen-barrel.mjs`) — no in-browser `toBarrel()`.
-- `bridge.js` — `createBridge({base, token, fetchImpl})`: in-client host-API client
-  (`ping/save/load/repl` + `replStreamUrl`, token-headered).
+- `bridge.js` — `createBridge({base, token, fetchImpl})`: host-API client over HTTP OR
+  WS (auto-selected by base) — `ping/projects/scripts/script/templates/saveTemplate/
+  deleteTemplate/save/load/repl` + `subscribeLog` (the live-log stream), token-headered.
 - `package.json` (name `@lb-ide/core`, type module), `scripts/gen-barrel.mjs`.
 
 **Shared vs per-mode:**
@@ -245,7 +246,7 @@ LB_BRIDGE_TOKEN=testtok-123 LB_PROJECT_ID=demo-proj node apps/editor-heavy/host/
   (version-locked @wunk closure) — deterministic, byte-identical across sources.
 - **`lb-fs`** is base-path-aware (derives host root from its extensionUri) and falls
   back to the static demo project when no bridge is configured. Configurable webview
-  origin via `LB_WEBVIEW_ENDPOINT`.
+  origin via `LB_WEBVIEW_ORIGIN`.
 - Commits `85ac84a`, `3f31ae5` (+ docs). Caddy route is in `/etc/caddy/Caddyfile`
   (the `cb.2d.rocks` block), documented in `docs/networking.md` + `host/DEPLOY.md`.
 

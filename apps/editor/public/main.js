@@ -821,7 +821,8 @@ const BUILD_FILE = "lbbuild.config.json";
 // Authoritative for the lean config UI (writeBuildConfig/setBuildField). Mirrors
 // @lb-ide/core build.js DEFAULT_BUILD — runBuild re-merges core's as a fallback,
 // so keep the two in sync (kept here too because the buildless lean app can't
-// sync-import the ESM in these synchronous config helpers).
+// sync-import the ESM in these synchronous config helpers). check-default-build.mjs
+// asserts they match by regex — keep the closing `};` on its own line for that check.
 const DEFAULT_BUILD = {
   entry: "",                 // "" → auto-detect (main.ts / main.js)
   format: "esm",             // esm | iife | cjs

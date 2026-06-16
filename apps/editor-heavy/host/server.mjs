@@ -28,9 +28,10 @@ const PROJECT_ID = process.env.LB_PROJECT_ID || "";
 // Webview origin isolation. VS Code serves webview content from a SEPARATE origin
 // (a per-webview {{uuid}} subdomain) so a compromised webview can't reach the
 // workbench origin. In dev, *.localhost resolves to loopback so the default works;
-// in prod set LB_WEBVIEW_ENDPOINT to a wildcard-DNS https origin you control, e.g.
+// in prod set LB_WEBVIEW_ORIGIN to a wildcard-DNS https origin you control, e.g.
 // "https://{{uuid}}.heavy-webview.example.com" (must NOT be the workbench origin).
-const WEBVIEW_ENDPOINT = process.env.LB_WEBVIEW_ENDPOINT || "";
+// (Same env name as build-static.mjs — one knob across both hosts.)
+const WEBVIEW_ENDPOINT = process.env.LB_WEBVIEW_ORIGIN || "";
 
 const MIME = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
