@@ -28,6 +28,10 @@ function createHttpBridge({ base = "", token = "", fetchImpl = fetch } = {}) {
     ping: () => json("api/ping", { method: "GET" }),
     /** List the host's persisted projects (full objects) so heavy opens the same one. */
     projects: () => json("api/projects", { method: "GET" }),
+    /** List installed scripts in the client's scripts/ folder (bare array of filenames). */
+    scripts: () => json("api/scripts", { method: "GET" }),
+    /** Read one installed script's text → {ok, name, content}. */
+    script: (name) => json("api/script?name=" + encodeURIComponent(name), { method: "GET" }),
     save: (project) => call("api/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(project) }),
     // load/repl run code in the client; `userGesture` flags an explicit user action
     // (the server may require it). Forwarded on both transports.

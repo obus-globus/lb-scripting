@@ -17,13 +17,15 @@ import java.util.Map;
  */
 final class FileOps implements Ops {
     private final Path projDir;
+    private final Path scriptsDir;   // the LiquidBounce scripts/ folder (installed .js/.mjs)
     private final java.util.function.Consumer<String> log;
     Map<String, Object> lastLoad;
 
-    FileOps(Path projDir, java.util.function.Consumer<String> log) {
+    FileOps(Path projDir, Path scriptsDir, java.util.function.Consumer<String> log) {
         this.projDir = projDir;
+        this.scriptsDir = scriptsDir;
         this.log = log;
-        try { Files.createDirectories(projDir); } catch (IOException e) { throw new UncheckedIOException(e); }
+        try { Files.createDirectories(projDir); Files.createDirectories(scriptsDir); } catch (IOException e) { throw new UncheckedIOException(e); }
     }
 
     private static String sanitizeId(Object id) {
@@ -44,6 +46,26 @@ final class FileOps implements Ops {
             }
         } catch (IOException ignored) { /* empty */ }
         return out;
+    }
+
+    @Override public List<Object> scripts() {
+        List<Object> out = new ArrayList<>();
+        try (DirectoryStream<Path> ds = Files.newDirectoryStream(scriptsDir, "*.{js,mjs}")) {
+            for (Path p : ds) out.add(p.getFileName().toString());
+        } catch (IOException ignored) { /* empty / no dir */ }
+        return out;
+    }
+
+    @Override public Map<String, Object> script(String name) {
+        Map<String, Object> r = new LinkedHashMap<>();
+        // sanitize to a single safe filename segment (no traversal) — mirrors the in-client readScript.
+        String fname = name == null ? "" : name.replaceAll("[^a-zA-Z0-9._-]", "_");
+        if (fname.isEmpty() || fname.matches("\\.+")) { r.put("ok", false); return r; }
+        Path p = scriptsDir.resolve(fname);
+        if (!Files.exists(p)) { r.put("ok", false); return r; }
+        try { r.put("ok", true); r.put("name", name); r.put("content", Files.readString(p)); }
+        catch (IOException e) { r.put("ok", false); r.put("error", e.getMessage()); }
+        return r;
     }
 
     @Override public Map<String, Object> save(Map<String, Object> project) {

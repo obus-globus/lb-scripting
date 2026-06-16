@@ -117,6 +117,8 @@ public final class LbHeavyServer {
         switch (p) {
             case "/api/ping": writeJson(out, 200, ops.ping()); return;
             case "/api/projects": writeJsonList(out, 200, ops.projects()); return;
+            case "/api/scripts": writeJsonList(out, 200, ops.scripts()); return;
+            case "/api/script": writeJson(out, 200, ops.script(queryParam(head.get(":query"), "name"))); return;
             case "/api/save": writeJson(out, 200, ops.save(Json.obj(Json.parse(body)))); return;
             case "/api/load": {
                 Map<String, Object> a = Json.obj(Json.parse(body));
@@ -205,6 +207,8 @@ public final class LbHeavyServer {
         switch (op == null ? "" : op) {
             case "ping": return ops.ping();
             case "projects": return ops.projects();
+            case "scripts": return ops.scripts();
+            case "script": return ops.script(Json.str(a.get("name")));
             case "save": return ops.save(Json.obj(a.get("project")));
             case "load":
                 if (!Json.bool(a.get("userGesture"))) throw new RuntimeException("load requires an explicit user action");
@@ -376,8 +380,9 @@ public final class LbHeavyServer {
         String bridgeBase = a.getOrDefault("bridgeBase", "");
         String projectId = a.getOrDefault("project", "demo-proj");
         Path projDir = Path.of(a.getOrDefault("projects", "/tmp/lb-heavy-projects"));
+        Path scriptsDir = Path.of(a.getOrDefault("scripts", "/tmp/lb-heavy-scripts"));
         LbHeavyServer[] self = new LbHeavyServer[1];
-        FileOps ops = new FileOps(projDir, line -> { System.out.println("[ops] " + line); if (self[0] != null) self[0].publishLog(line); });
+        FileOps ops = new FileOps(projDir, scriptsDir, line -> { System.out.println("[ops] " + line); if (self[0] != null) self[0].publishLog(line); });
         self[0] = new LbHeavyServer(port, webRoot, mounts, token, origins, bridgeBase, projectId, ops);
         self[0].start();
     }

@@ -13,6 +13,8 @@ import java.util.Map;
 interface Ops {
     Map<String, Object> ping();                                   // {ok, root}
     List<Object> projects();                                      // full project objects
+    List<Object> scripts();                                       // installed script filenames (scripts/ folder)
+    Map<String, Object> script(String name);                      // {ok, name, content} | {ok:false}
     Map<String, Object> save(Map<String, Object> project);        // {ok, id}
     Map<String, Object> load(String name, String mjs, boolean debug); // {ok, loaded, enabled, debugPort?}
     Map<String, Object> repl(String code);                        // {ok, result}
