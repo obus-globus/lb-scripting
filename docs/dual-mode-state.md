@@ -229,26 +229,51 @@ LB_BRIDGE_TOKEN=testtok-123 LB_PROJECT_ID=demo-proj node apps/editor-heavy/host/
 
 ---
 
+**Phase 4 DONE: heavy mode is DEPLOYED (static) + prod-prepped.**
+- **LIVE at `https://cb.2d.rocks/liquid-ide/`** — a fully static deploy (no node
+  server in prod; `server.mjs` is dev-only). Caddy serves `apps/editor-heavy/host/
+  dist` and sets the COI headers; **verified end-to-end**: headful render clean
+  (`crossOriginIsolated===true`, codicons/theme, the demo project opens with full
+  `@wunk` barrel intellisense), and the public path returns the COI headers intact
+  through Cloudflare (HTTP/2 200, checked from an external box). Existing Caddy routes
+  undisturbed (validated before reload; backup at `/etc/caddy/Caddyfile.bak-*`).
+- **`build-static.mjs`** produces the static `dist/` (symlinks the vscode-web bundle,
+  bakes the workbench shell with a runtime origin-fixup → origin-agnostic + path-prefix
+  aware, stages the lb-glue/lb-fs bundles + barrel typings + a read-only demo project).
+  Build: `LB_BASE_PATH=/liquid-ide node build-static.mjs` (see `host/DEPLOY.md`).
+- **`gen-barrel --bundle`** now reads the lean editor's pinned `typings-bundle.json`
+  (version-locked @wunk closure) — deterministic, byte-identical across sources.
+- **`lb-fs`** is base-path-aware (derives host root from its extensionUri) and falls
+  back to the static demo project when no bridge is configured. Configurable webview
+  origin via `LB_WEBVIEW_ENDPOINT`.
+- Commits `85ac84a`, `3f31ae5` (+ docs). Caddy route is in `/etc/caddy/Caddyfile`
+  (the `cb.2d.rocks` block), documented in `docs/networking.md` + `host/DEPLOY.md`.
+
+**⚠ Follow-up (flagged, not blocking):** the deployed editor **renders + builds**
+(intellisense + esbuild build + download) but **live project load/save is NOT wired**
+— the ScriptManager bridge (`lb.hostBase`) is a separate origin and there's no live
+in-client host in web-only mode. To enable: serve a ScriptManager host on its own
+CORS+CORP origin, set `bridgeBase`/`bridgeToken` in `dist/lb/config`. (Webviews under
+the shared-domain path may not isolate — own subdomain needed; core editor unaffected.)
+
+---
+
 ## 5. Remaining phases + RESUME POINT
 
-**▶ RESUME HERE — Phase 4: deploy + in-client (CEF) heavy.** Heavy works end-to-end
-in dev; what's left to ship it:
-1. **Deploy the heavy host** behind the path-routed domain (it needs its OWN origin
-   for COI + webview `{{uuid}}.` subdomains — note `webEndpointUrlTemplate` is
-   `http://{{uuid}}.<host>` which only works on `*.localhost`/wildcard-DNS origins;
-   pick a real webview-isolation strategy for prod). Lean stays default; heavy opt-in
-   via the switch. Wire the lean button's `heavyUrl` default to the deployed origin.
-2. **Generate + serve the barrel from the real `@wunk` version** the project targets
-   (today it's pre-generated from the spike closure into `host/typings/`); tie barrel
-   regen to the api-types version.
-3. **In-client (CEF) heavy** (if wanted): the pure-Java `HttpServer` + ~20-line COI
+**▶ RESUME HERE — Phase 5: wire the live ScriptManager bridge + (optional) in-client CEF.**
+1. **Live project load/save**: stand up a ScriptManager bridge origin (the in-client
+   Java host, or a deployed node stand-in) with CORS+CORP; point `dist/lb/config` at
+   it. Then heavy sources real projects via `GET /api/projects` and writes back via
+   `POST /api/save` — the lean→heavy switch then carries real projects. Wire the lean
+   button's `heavyUrl` default to `https://cb.2d.rocks/liquid-ide`.
+2. **In-client (CEF) heavy** (if wanted): the pure-Java `HttpServer` + ~20-line COI
    handler so the LB client itself serves the COI bundle (the GraalJS-script socket
    server can't — see §2). Then both modes run fully in-client.
 
 Known gaps to revisit (from review, deferred as non-blocking): empty-directory
 round-trip fidelity (lb-fs derives dirs from file paths; lean tracks `proj.folders`),
-binary files (the project model is text-only by design), and the `/lb/config` token
-trust boundary (documented in code).
+binary files (the project model is text-only by design), the `/lb/config` token
+trust boundary (documented in code), and webview isolation under a shared-domain path.
 
 **Later / deferred:** the in-editor debugger
 + stepping UI (old task #8).
