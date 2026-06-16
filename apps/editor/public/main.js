@@ -162,7 +162,7 @@ function configureTS(defaults, isJs) {
   // target silently fell back to ES3). Use ESNext (defined) so modern syntax /
   // iterables type-check correctly.
   defaults.setCompilerOptions({ target: t.ScriptTarget.ESNext, module: t.ModuleKind.ESNext, moduleResolution: t.ModuleResolutionKind.NodeJs, moduleDetection: 3, lib: ["es2023"], types: ["@wunk/lb-script-api-types/ambient"], strict: true, skipLibCheck: true, allowNonTsExtensions: true, noEmit: true, ...(isJs ? { allowJs: true, checkJs: true } : {}) });
-  defaults.setExtraLibs(baseExtraLibs);
+  defaults.setExtraLibs(jvmExtraLibs());
   defaults.setEagerModelSync(true);
 }
 const langFor = (p) => (p.endsWith(".js") ? "javascript" : p.endsWith(".json") ? "json" : p.endsWith(".md") ? "markdown" : "typescript");
@@ -185,6 +185,9 @@ function openFile(path, opts = {}) {
   if (!path) { proj.active = null; preview = null; editor.setModel(null); renderFiles(); renderFtabs(); return; }
   libView = null; // returning to a project file leaves any read-only library view
   proj.active = path;
+  // Monaco compiler options are global; re-apply the active project's JVM-types level
+  // when the project changes (cheap-guarded so tab switches within a project don't).
+  if (proj.id !== _jvmAppliedFor) { _jvmAppliedFor = proj.id; applyJvmTypes(); }
   if (!proj.openTabs) proj.openTabs = [];
   // preview (explorer single-click / go-to-def): a reusable italic tab, not pinned;
   // anything else pins. Already-open files just activate.
@@ -849,6 +852,37 @@ function writeBuildConfig(cfg) { const json = JSON.stringify(cfg, null, 2) + "\n
 function ensureBuildConfigFile() { if (!(BUILD_FILE in proj.files)) writeBuildConfig({ ...DEFAULT_BUILD, ...(proj.build || {}) }); }
 function setBuildField(key, value) { const cur = { ...DEFAULT_BUILD, ...(rawBuildConfig().config || {}) }; cur[key] = value; writeBuildConfig(cur); }
 
+// JVM type-info level — per-project, persisted in lbbuild.config.json as `jvmTypes`.
+// It's an editor-only typings switch (not an esbuild option), so it lives in the
+// config FILE but is intentionally NOT a DEFAULT_BUILD key. It controls whether a
+// bare `Java.type("...")` string literal is typed in the editor:
+//   off → ambient only (Java.type(...) is `any`; use explicit imports for typed handles)
+//   lb  → + the registry-lb closure (string-literal typing of net.ccbluex.* classes)
+// The registry is a ~0.6 MB gz extra closure, so it's a SEPARATE artifact
+// (typings-registry-lb.json) fetched only when the toggle is first enabled, and
+// added to / removed from Monaco's extra libs (a loaded .d.ts's `declare global`
+// always applies, so gating has to be by presence, not the `types` option).
+// registry-full (net.minecraft.*) is too large to ship — deferred to the lazy path.
+const JVM_LEVELS = ["off", "lb"];
+function jvmTypesLevel() { const v = (rawBuildConfig().config || {}).jvmTypes; return JVM_LEVELS.includes(v) ? v : "off"; }
+let _registryLibs = null; // cached registry-lb extra libs (loaded on first enable)
+function jvmExtraLibs() { return (jvmTypesLevel() === "lb" && _registryLibs) ? baseExtraLibs.concat(_registryLibs) : baseExtraLibs; }
+async function loadRegistryLibs() {
+  if (_registryLibs) return _registryLibs;
+  const { getClosure, toExtraLibs } = await import("./lb-ide-core/typings.js");
+  _registryLibs = toExtraLibs(await getClosure("typings-registry-lb.json"));
+  return _registryLibs;
+}
+async function applyJvmTypes() {
+  if (!window.monaco) return;
+  if (jvmTypesLevel() === "lb") { try { await loadRegistryLibs(); } catch { log("could not load LiquidBounce type registry", "e"); } }
+  const libs = jvmExtraLibs();
+  monaco.languages.typescript.typescriptDefaults.setExtraLibs(libs);
+  monaco.languages.typescript.javascriptDefaults.setExtraLibs(libs);
+}
+function setJvmTypes(level) { setBuildField("jvmTypes", level); applyJvmTypes(); }
+let _jvmAppliedFor = null; // re-apply Monaco extra libs only when the active project changes
+
 async function build() {
   $("build").disabled = true; setStatus("building…");
   try {
@@ -1133,6 +1167,15 @@ require(["vs/editor/editor.main"], async () => {
     el.appendChild(toggle("minify", "Minify output"));
     el.appendChild(toggle("sourcemap", "Inline source map"));
     el.appendChild(toggle("keepNames", "Keep names"));
+    const jsep = document.createElement("div"); jsep.className = "sep"; el.appendChild(jsep);
+    // JVM type-info — same checkbox idiom as the toggles above. Per-project. On first
+    // enable it fetches the registry-lb typings (~0.6 MB gz) and types bare
+    // Java.type("net.ccbluex...") string literals; off leaves them `any`.
+    const jlbl = document.createElement("label"); jlbl.className = "item";
+    const jcb = document.createElement("input"); jcb.type = "checkbox"; jcb.checked = jvmTypesLevel() === "lb";
+    jcb.onchange = () => { setJvmTypes(jcb.checked ? "lb" : "off"); log("JVM type info: " + (jcb.checked ? "LiquidBounce" : "off"), "d"); };
+    jlbl.appendChild(jcb); jlbl.appendChild(document.createTextNode('Type Java.type("…") strings (LiquidBounce)'));
+    el.appendChild(jlbl);
     const sep = document.createElement("div"); sep.className = "sep"; el.appendChild(sep);
     el.appendChild(popItem("Edit build config…", () => { ensureBuildConfigFile(); if (!showAux) setShowAux(true); openFile(BUILD_FILE); }, "lbbuild.config.json"));
     const note = document.createElement("div"); note.className = "item"; note.style.cssText = "cursor:default;font-size:11px;color:var(--fgdim)"; note.textContent = "target " + (cfg.target || "es2022") + " · " + (cfg.format || "esm"); el.appendChild(note);
@@ -1296,6 +1339,8 @@ require(["vs/editor/editor.main"], async () => {
     setMinify: (v) => { proj.build = { ...(proj.build || {}), minify: !!v }; },
     setBuildConfig: (obj) => writeBuildConfig({ ...DEFAULT_BUILD, ...obj }),
     getBuildConfig: () => buildConfig(),
+    setJvmTypes: (level) => setJvmTypes(level),
+    jvmTypes: () => jvmTypesLevel(),
     exportZipBytes: () => { const enc = new TextEncoder(); return Array.from(makeZip(Object.keys(proj.files).sort().map((n) => ({ name: n, data: enc.encode(proj.files[n]) })))); },
     importText: (name, content) => { const p = importOneFile(name, content); openFile(p); return p; },
     downloadBtnDisabled: () => $("download").disabled,

@@ -10,8 +10,8 @@ const app = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(app, "dist");
 const nm = path.join(app, "node_modules");
 
-if (!existsSync(path.join(app, "public/typings-bundle.json"))) {
-  console.log("typings-bundle.json missing — generating…");
+if (!existsSync(path.join(app, "public/typings-bundle.json")) || !existsSync(path.join(app, "public/typings-registry-lb.json"))) {
+  console.log("typings bundle(s) missing — generating…");
   execSync("node scripts/gen-typings.mjs", { cwd: app, stdio: "inherit" });
 }
 if (!existsSync(path.join(app, "public/templates.json"))) {
@@ -27,7 +27,7 @@ rmSync(dist, { recursive: true, force: true });
 mkdirSync(dist, { recursive: true });
 
 // real page assets (resolve the symlinks in public/ to their real targets)
-for (const f of ["index.html", "main.js", "version.js", "typings-bundle.json", "templates.json", "lb-inject.d.ts", "lb-inject-bundled.js"])
+for (const f of ["index.html", "main.js", "version.js", "typings-bundle.json", "typings-registry-lb.json", "templates.json", "lb-inject.d.ts", "lb-inject-bundled.js"])
   cpSync(path.join(app, "public", f), path.join(dist, f));
 
 // shared @lb-ide/core ESM (dynamic-imported by main.js), copied as real files
