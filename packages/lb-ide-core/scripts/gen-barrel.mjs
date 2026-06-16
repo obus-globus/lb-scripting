@@ -44,7 +44,9 @@ function loadClosure() {
     const root = path.resolve(WUNK || '/home/clawd/obus/vscode-build/lb-ws2/wunk');
     const walk = (dir) => {
       for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-        const p = path.join(dir, e.name);
+        // Offline build CLI; `dir`/`e.name` come from an operator-specified root +
+        // readdir, not from any web request (no traversal exposure).
+        const p = path.join(dir, e.name); // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
         if (e.isDirectory()) walk(p);
         else if (e.name.endsWith('.d.ts')) closure.set(path.relative(root, p).replace(/\\/g, '/'), fs.readFileSync(p, 'utf8'));
       }
