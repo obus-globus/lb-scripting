@@ -171,7 +171,10 @@ class LbFs {
   }
   async _save() {
     const files = {};
-    for (const [p, f] of this.files) { if (this.provisioned.has(p)) continue; files["/" === p[0] ? p.slice(1) : p] = dec.decode(f.data); }
+    // Exclude provisioned files AND everything under .vscode/ (editor-local config:
+    // our injected settings.json + any generated launch.json from Build-and-Debug —
+    // machine-specific, must not pollute the shared project on the host).
+    for (const [p, f] of this.files) { if (this.provisioned.has(p) || p.startsWith("/.vscode/")) continue; files["/" === p[0] ? p.slice(1) : p] = dec.decode(f.data); }
     this.project.files = files;
     try { await this.bridge.save({ ...this.project, updatedAt: Date.now() }); } catch (e) { console.error("lbfs save failed", e); }
   }

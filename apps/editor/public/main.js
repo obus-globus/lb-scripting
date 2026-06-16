@@ -723,7 +723,7 @@ async function build() {
     const built = await runBuild({ esbuild, files: proj.files, cfg, entry, injectBundle, debug: debugOn });
     builds.set(proj.id, { name: built.name, code: built.code });
     syncDownloadBtn();
-    log("✓ built " + built.name + " — " + built.code.length + " bytes" + (cfg.minify ? " (minified)" : ""), "s");
+    log("✓ built " + built.name + " — " + built.code.length + " bytes" + (cfg.minify ? " (minified)" : "") + (debugOn ? " (inline source map)" : ""), "s");
     for (const w of built.warnings) log("warn: " + w.text, "d");
     setStatus("build ok");
   } catch (e) {
