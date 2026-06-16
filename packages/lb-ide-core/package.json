@@ -7,7 +7,8 @@
     "./build": "./src/build.js",
     "./build-plugin": "./src/build-plugin.js",
     "./bridge": "./src/bridge.js",
-    "./typings": "./src/typings.js"
+    "./typings": "./src/typings.js",
+    "./templates": "./src/templates.js"
   },
   "license": "GPL-3.0-or-later",
   "author": "obus-globus"

@@ -40,8 +40,19 @@ async function dbDel(store, key) { const db = await idb(); return new Promise((r
 
 // ---------------------------------------------------------------- state
 let CATEGORIES = [];                      // bundled templates (templates.json)
-let userTemplates = [];                   // user/fetched template docs from the bridge (lb-ide/templates/)
+let userTemplates = [];                   // user template docs from the bridge (lb-ide/templates/)
+let fetchedTemplates = [];                // templates fetched from the default source (in-memory, stripped)
 let INJECT_DTS = "";
+// Default template source: a CI-generated templates.json published in the repo,
+// fetched at runtime (CORS-clean raw URL — no token, no host). v1 ships ONLY this
+// single trusted source (no add-custom-repo UI); fetched files are STRIPPED on import.
+const TEMPLATE_SOURCE = {
+  id: "lb-scripting",
+  name: "lb-scripting",
+  // refs/heads/<branch> form handles the slash in the feature branch name; switch to main after merge.
+  // Published at repo root by the gen-templates Action (outside templates/ → no trigger loop).
+  url: "https://raw.githubusercontent.com/obus-globus/lb-scripting/refs/heads/feat/dual-mode-ide/templates.json",
+};
 let injectBundle = null; // lazily fetched lb-inject runtime
 let baseExtraLibs = [];
 
@@ -411,7 +422,8 @@ async function loadProject(id) {
 function mergedCategories() {
   const out = CATEGORIES.map((c) => ({ ...c, _origin: "bundled" }));
   const byId = new Map(out.map((c, i) => [c.id, i]));
-  for (const t of userTemplates) {
+  // precedence: bundled < fetched < user (a user's own template wins over a fetched one)
+  for (const t of [...fetchedTemplates, ...userTemplates]) {
     if (!t || !t.id || !t.base || !t.base.files) continue;        // skip malformed docs
     // aux is an OBJECT (path→content), like bundled templates.json — createProject
     // spreads it into files. (A project's proj.aux is an array of paths; a template's
@@ -423,10 +435,26 @@ function mergedCategories() {
   return out;
 }
 function categoryById(cid) { const m = mergedCategories(); return m.find((c) => c.id === cid) || m[0]; }
-// Pull user/fetched templates from the bridge into the New menu (no-op when offline).
+// Pull the user's own templates from the bridge into the New menu (no-op when offline).
 async function refreshTemplates() {
   if (!bridge || !bridgeOn) { userTemplates = []; return; }
-  try { userTemplates = (await bridge.templates()) || []; } catch { userTemplates = []; }
+  try { userTemplates = ((await bridge.templates()) || []).filter((t) => (t.origin || "user") !== "fetched"); } catch { userTemplates = []; }
+}
+
+// Fetch the default template source (a published templates.json), STRIP untrusted
+// files, merge in-memory (origin=fetched). Bare fetch — no token, credentials omitted
+// (the source URL is not the host; never leak the session token to it). Non-blocking:
+// a failure leaves the bundled set intact. Re-runnable (manual refresh in the manager).
+async function fetchTemplateSource() {
+  if (!TEMPLATE_SOURCE || !TEMPLATE_SOURCE.url) return { ok: false };
+  try {
+    const res = await fetch(TEMPLATE_SOURCE.url, { credentials: "omit" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const doc = await res.json();
+    const { parseTemplateSource } = await import("./lb-ide-core/templates.js");
+    fetchedTemplates = parseTemplateSource(doc, { sourceId: TEMPLATE_SOURCE.id });
+    return { ok: true, count: fetchedTemplates.length };
+  } catch (e) { return { ok: false, error: (e && e.message) || String(e) }; }
 }
 async function createProject(catId, exampleId, opts = {}) {
   const cat = categoryById(catId);
@@ -910,6 +938,9 @@ require(["vs/editor/editor.main"], async () => {
     fetch("templates.json").then((r) => r.json()).then((d) => d.categories),
     fetch("lb-inject.d.ts").then((r) => r.text()),
   ]);
+  // Pull the default source's published templates (editor-fetch, stripped) — non-blocking;
+  // the New menu picks them up once they arrive. Works with or without a bridge.
+  fetchTemplateSource().then((r) => { if (r.ok && r.count) log("fetched " + r.count + " template(s) from " + TEMPLATE_SOURCE.name, "d"); });
   // host-API bridge client (shared @lb-ide/core) — created once for /api/* calls.
   bridge = (await import("./lb-ide-core/bridge.js")).createBridge({ base: BASE, token: API_TOKEN });
   // typings closure + the lean (setExtraLibs) adapter live in @lb-ide/core; the
