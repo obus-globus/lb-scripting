@@ -126,7 +126,7 @@ tsconfig — moduleResolution bundler, no paths mapping).
 
 ## 4. Current build state
 
-**Branch `feat/dual-mode-ide` @ `59a35d5`** (off master, pushed to origin).
+**Branch `feat/dual-mode-ide` @ `001cab4`** (off master, pushed to origin).
 
 **Phase 1 DONE: `@lb-ide/core` extracted** (single-sourced LB pipeline; both modes
 consume it). Lean stayed green (headless `verify.mjs` passes after every step);
@@ -249,26 +249,69 @@ LB_BRIDGE_TOKEN=testtok-123 LB_PROJECT_ID=demo-proj node apps/editor-heavy/host/
 - Commits `85ac84a`, `3f31ae5` (+ docs). Caddy route is in `/etc/caddy/Caddyfile`
   (the `cb.2d.rocks` block), documented in `docs/networking.md` + `host/DEPLOY.md`.
 
-**⚠ Follow-up (flagged, not blocking):** the deployed editor **renders + builds**
-(intellisense + esbuild build + download) but **live project load/save is NOT wired**
-— the ScriptManager bridge (`lb.hostBase`) is a separate origin and there's no live
-in-client host in web-only mode. To enable: serve a ScriptManager host on its own
-CORS+CORP origin, set `bridgeBase`/`bridgeToken` in `dist/lb/config`. (Webviews under
+**Phase 5 DONE: converged pure-Java server (HTTP+WS bridge + COI static serving) +
+heavy dev-feature parity.** This closes the "live load/save is not wired" follow-up
+below for the in-client case, and brings heavy to feature-parity with lean's
+in-client dev loop.
+- **`apps/editor-heavy/server-java/`** — ONE dependency-free (JDK-only) server that
+  both (a) statically serves the heavy vscode-web bundle over HTTP with COI headers,
+  and (b) exposes the ScriptManager bridge over **HTTP** (`/api/*`, same-origin) AND
+  **WebSocket** (the hosted case: a remote `https` editor can't `fetch http://localhost`
+  but a `ws://localhost` works). Files: `LbHeavyServer.java` (raw ServerSocket, hand-
+  rolled HTTP parse + static serve + WS handshake/framing + dispatch), `Json.java`
+  (minimal JSON), `Ops.java`/`FileOps.java` (the ops seam + a projects-dir-backed impl).
+  Runs on plain threads (no GraalJS callbacks) so it works headlessly in-client.
+- **Security model (proven both directions):** WS Origin allowlist (rejects cross-site
+  WS hijacking — disallowed Origin → 403 at handshake); per-request/per-hello token
+  (`X-IDE-Token` / `{t:"hello",token}`, never in a URL); `load`/`repl` require an explicit
+  `userGesture` (auto/background callers refused). **NO ACAO/CORS on HTTP** (same-origin
+  only) — a P1 fix: `/lb/config` previously served the token under `ACAO:*`, letting any
+  site read it + call `load` (RCE). HTTP is now same-origin-only; the hosted path uses the
+  Origin-checked WS.
+- **WS protocol** (one multiplexed socket): `{t:"hello",token}` → `{t:"req",id,op,args}` /
+  `{t:"res",id,ok,result|error}` (ping/projects/save/load/repl) → `{t:"sub"}` →
+  `{t:"log",line}`. `createBridge` in core auto-selects HTTP vs WS by `^wss?:` on the base.
+- **Heavy dev-feature parity** (`lb-glue`): was build-and-load only; now matches lean's
+  in-client dev loop — `lb.toggleHotReload` (status bar, rebuild+reload on save, debounced),
+  `lb.repl` (input box → `bridge.repl(userGesture)` → output channel), `lb.toggleLogStream`
+  (`bridge.subscribeLog` → "LB Logs" channel), `lb.buildAndDebug` (loads with the GraalJS
+  inspector on `:9229` + attach info). `getBridge()` is MEMOIZED by `{base,token}` so the
+  WS socket is reused (no socket-per-call leak); hot-reload timer + log disposable cleaned up.
+- **Proven (browser, this VM, no CEF/GPU):** local-served heavy / HTTP bridge (editor at
+  `http://localhost:PORT` under COI, lb-fs sources from `/api/projects`, full intellisense);
+  hosted-https heavy / WS bridge (`https://cb.2d.rocks/liquid-ide` connects `ws://localhost`,
+  Origin accepted, provisions + intellisense); security (disallowed Origin rejected,
+  no-token `/api`→403, `load`/`repl` without `userGesture` refused). SSE/log stream verified.
+- Commits `ae0ac88` (parity), `001cab4` (review fixes: bridge cache, SSE sink lifecycle,
+  timer cleanup). README: `apps/editor-heavy/server-java/README.md`.
+
+**⚠ Follow-up (flagged, not blocking):** the live `cb.2d.rocks/liquid-ide` deploy is
+still the **read-only static demo** (`dist/lb/config` → `{"bridgeBase":"","bridgeToken":
+"","projectId":"demo"}`); it renders + builds + downloads but isn't pointed at a live
+bridge. The pure-Java server (Phase 5) is the bridge to point it at: bake the WS base
+(`ws://localhost:<port>`) + token into a hosted deploy's `/lb/config`, run the Java
+server in-client, and the hosted editor talks back over the Origin-checked WS. The
+remaining piece is the **in-LB-client wiring** of that server (below). (Webviews under
 the shared-domain path may not isolate — own subdomain needed; core editor unaffected.)
 
 ---
 
 ## 5. Remaining phases + RESUME POINT
 
-**▶ RESUME HERE — Phase 5: wire the live ScriptManager bridge + (optional) in-client CEF.**
-1. **Live project load/save**: stand up a ScriptManager bridge origin (the in-client
-   Java host, or a deployed node stand-in) with CORS+CORP; point `dist/lb/config` at
-   it. Then heavy sources real projects via `GET /api/projects` and writes back via
-   `POST /api/save` — the lean→heavy switch then carries real projects. Wire the lean
-   button's `heavyUrl` default to `https://cb.2d.rocks/liquid-ide`.
-2. **In-client (CEF) heavy** (if wanted): the pure-Java `HttpServer` + ~20-line COI
-   handler so the LB client itself serves the COI bundle (the GraalJS-script socket
-   server can't — see §2). Then both modes run fully in-client.
+**▶ RESUME HERE — two tracks (the bridge + server now EXIST; what remains is wiring):**
+
+1. **Open reorg (queued next, scorpion to confirm direction):** pull "open installed
+   script" out of the New-from-template dropdown into its own **"Open"** section with two
+   categories — **Projects** (`lb-ide/projects` sources) and **Installed scripts**
+   (`scripts/` compiled `.mjs`). Add `scripts()` / `script(name)` to the bridge client
+   (both HTTP + WS). Wire into BOTH modes (lean dropdown + heavy command/picker).
+2. **In-LB-client wiring of the pure-Java server (Phase 5 follow-up, needs in-game test):**
+   `main()` currently wires `FileOps` (projects-dir-backed). The in-client build constructs
+   `new LbHeavyServer(...)` with a **ScriptManager-backed `Ops`**: `save` → `lb-ide/projects/
+   <id>.json`; `load` → write `<name>.mjs` to `ScriptManager.root` + `loadScript`+`enable`
+   **on the MC thread**; `repl` → eval on the MC thread; route live `log(...)` into
+   `publishLog(...)`. HTTP/WS loop unchanged; run on a plain `Thread`. Then bake the WS base
+   + token into a hosted `/lb/config` and the live deploy gets real load/save.
 
 Known gaps to revisit (from review, deferred as non-blocking): empty-directory
 round-trip fidelity (lb-fs derives dirs from file paths; lean tracks `proj.folders`),
