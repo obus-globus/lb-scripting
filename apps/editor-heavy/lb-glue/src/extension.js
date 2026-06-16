@@ -1,37 +1,28 @@
 // LB heavy-mode glue extension (web). The thin layer wiring VS Code's command/UI
 // to the SHARED @lb-ide/core pipeline - it consumes core, never reimplements it.
-//
-// buildAndRun: read the workspace's script files → run @lb-ide/core's runBuild
-// (esbuild-wasm, in-thread under cross-origin isolation) → (next) hand the built
-// .mjs to the ScriptManager host bridge. esbuild-wasm is initialized from the
-// extension's bundled esbuild.wasm asset via `wasmModule` (no URL fetch, no nested
-// worker) so it works inside the isolated vscode-web ext-host worker.
+// Brings the heavy editor to parity with the lean editor's in-client dev features:
+// build-and-run, hot-reload, a REPL, a live-log stream, and build-and-debug
+// (GraalJS inspector on :9229) - all over the @lb-ide/core bridge (HTTP or WS).
 import * as vscode from "vscode";
 import * as esbuild from "esbuild-wasm";
 import { runBuild, DEFAULT_BUILD } from "@lb-ide/core/build";
 import { createBridge } from "@lb-ide/core/bridge";
 
 const BUILD_FILE = "lbbuild.config.json"; // per-project build config (matches the lean editor)
-
-// Runtime assets ship alongside the bundled `dist/extension.js` browser entry.
 const assetUri = (context, name) => vscode.Uri.joinPath(context.extensionUri, "dist", name);
+const dec = new TextDecoder();
 
 let esbuildReady = null;
 async function initEsbuild(context) {
   if (!esbuildReady) {
     esbuildReady = (async () => {
       const wasmBytes = await vscode.workspace.fs.readFile(assetUri(context, "esbuild.wasm"));
-      const wasmModule = await WebAssembly.compile(wasmBytes);
-      await esbuild.initialize({ wasmModule, worker: false });
+      await esbuild.initialize({ wasmModule: await WebAssembly.compile(wasmBytes), worker: false });
     })();
   }
   return esbuildReady;
 }
-
-const dec = new TextDecoder();
-async function readAsset(context, name) {
-  return dec.decode(await vscode.workspace.fs.readFile(assetUri(context, name)));
-}
+async function readAsset(context, name) { return dec.decode(await vscode.workspace.fs.readFile(assetUri(context, name))); }
 
 // Recursively read the workspace's buildable sources into a { relpath → content } map.
 async function readWorkspaceFiles(root) {
@@ -50,54 +41,99 @@ async function readWorkspaceFiles(root) {
   return files;
 }
 
+// The shared ScriptManager bridge (base/token from lb.hostBase/hostToken; lb-fs
+// injects the resolved absolute base). null when no host is configured.
+function getBridge() {
+  const cfg = vscode.workspace.getConfiguration("lb");
+  const base = cfg.get("hostBase", "");
+  return base ? createBridge({ base, token: cfg.get("hostToken", "") }) : null;
+}
+
+// Build the workspace to a single .mjs via @lb-ide/core (shared by run/hot-reload/debug).
+async function buildWorkspace(context, ch) {
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || !folders.length) throw new Error("no workspace folder open");
+  const [files] = await Promise.all([readWorkspaceFiles(folders[0].uri), initEsbuild(context)]);
+  let projCfg = {};
+  if (BUILD_FILE in files) { try { projCfg = JSON.parse(files[BUILD_FILE]); } catch (e) { throw new Error(`${BUILD_FILE}: ${e.message}`); } }
+  delete files[BUILD_FILE];
+  const bcfg = { ...DEFAULT_BUILD, ...projCfg };
+  let injectBundle = "";
+  if (bcfg.inlineLbInject !== false && Object.values(files).some((c) => /from\s+["']lb-inject["']/.test(c))) injectBundle = await readAsset(context, "lb-inject-bundled.js");
+  const built = await runBuild({ esbuild, files, cfg: bcfg, injectBundle });
+  ch.appendLine(`built ${built.name} - ${built.code.length} bytes`);
+  return built;
+}
+
+// Build + load into the client. `debug` loads with the GraalJS inspector.
+async function buildAndLoad(context, ch, { debug = false, quiet = false } = {}) {
+  let built;
+  try { built = await buildWorkspace(context, ch); }
+  catch (e) {
+    const errs = (e && e.errors) || [];
+    if (errs.length) for (const er of errs) ch.appendLine("✗ " + (er.location ? er.location.file + ": " : "") + er.text);
+    ch.appendLine("build failed: " + (e && (e.stack || e.message) || e));
+    if (!quiet) vscode.window.showErrorMessage("LB build failed: " + (errs.length ? errs[0].text : (e && e.message || e)));
+    return;
+  }
+  const bridge = getBridge();
+  if (!bridge) { if (!quiet) vscode.window.showInformationMessage(`LB: built ${built.name} (${built.code.length} bytes; no host configured)`); return; }
+  try {
+    const res = await bridge.load({ name: built.name.replace(/\.mjs$/, ""), mjs: built.code, debug, userGesture: true });
+    ch.appendLine("host load → " + JSON.stringify(res));
+    if (!quiet) {
+      if (debug && res && res.debugPort) vscode.window.showInformationMessage(`LB: loaded ${built.name} with inspector on :${res.debugPort} — attach via chrome://inspect or a VS Code attach config.`);
+      else vscode.window.showInformationMessage(`LB: loaded ${built.name} → ${JSON.stringify(res)}`);
+    }
+  } catch (e) { ch.appendLine("host load failed: " + (e && e.message || e)); if (!quiet) vscode.window.showErrorMessage("LB load failed: " + (e && e.message || e)); }
+}
+
 export function activate(context) {
   const ch = vscode.window.createOutputChannel("LB Glue");
-  context.subscriptions.push(vscode.commands.registerCommand("lb.buildAndRun", async () => {
-    try {
-      const folders = vscode.workspace.workspaceFolders;
-      if (!folders || !folders.length) { vscode.window.showErrorMessage("LB-GLUE: no workspace folder open"); return; }
-      const root = folders[0].uri;
-      const [files] = await Promise.all([readWorkspaceFiles(root), initEsbuild(context)]);
-      // Per-project build config (an editable lbbuild.config.json, like the lean
-      // editor) merged over the shared defaults. Pull it out of the build inputs.
-      let projCfg = {};
-      if (BUILD_FILE in files) { try { projCfg = JSON.parse(files[BUILD_FILE]); } catch (e) { throw new Error(`${BUILD_FILE}: ${e.message}`); } }
-      delete files[BUILD_FILE];
-      const bcfg = { ...DEFAULT_BUILD, ...projCfg };
-      ch.appendLine(`[lb-glue] read ${Object.keys(files).length} files: ${Object.keys(files).join(", ")}`);
-      let injectBundle = "";
-      if (bcfg.inlineLbInject !== false && Object.values(files).some((c) => /from\s+["']lb-inject["']/.test(c))) injectBundle = await readAsset(context, "lb-inject-bundled.js");
-      // runBuild merges DEFAULT_BUILD again and resolves cfg.entry via resolveEntry.
-      const built = await runBuild({ esbuild, files, cfg: bcfg, injectBundle });
-      ch.appendLine(`[lb-glue] built ${built.name} - ${built.code.length} bytes`);
+  const logCh = vscode.window.createOutputChannel("LB Logs");
+  const reg = (id, fn) => context.subscriptions.push(vscode.commands.registerCommand(id, fn));
 
-      // Hand the built .mjs to the in-client ScriptManager host (if configured).
-      // Web-only with no live host → base unset → build-only. The bridge is the
-      // SAME shared @lb-ide/core client the lean editor uses (token-headered).
-      const cfg = vscode.workspace.getConfiguration("lb");
-      const base = cfg.get("hostBase", "");
-      if (base) {
-        const bridge = createBridge({ base, token: cfg.get("hostToken", "") });
-        // buildAndRun is an explicit user command → userGesture (the server gates load on it).
-        const res = await bridge.load({ name: built.name.replace(/\.mjs$/, ""), mjs: built.code, debug: false, userGesture: true });
-        ch.appendLine(`[lb-glue] host load → ${JSON.stringify(res)}`);
-        vscode.window.showInformationMessage(`LB-GLUE-OK: loaded ${built.name} → host ${JSON.stringify(res)}`);
-      } else {
-        vscode.window.showInformationMessage(`LB-GLUE-OK: built ${built.name} (${built.code.length} bytes)`);
-      }
-    } catch (e) {
-      // esbuild build failures carry a structured e.errors[] with locations.
-      const errs = (e && e.errors) || [];
-      if (errs.length) for (const er of errs) ch.appendLine("[lb-glue] ✗ " + (er.location ? er.location.file + ": " : "") + er.text);
-      ch.appendLine("[lb-glue] build failed: " + (e && (e.stack || e.message) || e));
-      vscode.window.showErrorMessage("LB-GLUE-FAIL: " + (errs.length ? errs[0].text : (e && e.message || e)));
-    }
+  reg("lb.buildAndRun", () => buildAndLoad(context, ch));
+  reg("lb.buildAndDebug", () => buildAndLoad(context, ch, { debug: true }));
+
+  // Hot-reload: rebuild + reload on save when on (debounced), like the lean editor.
+  let hotReload = false, hotTimer = null;
+  const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
+  status.command = "lb.toggleHotReload";
+  const renderStatus = () => { status.text = "$(sync) LB hot-reload: " + (hotReload ? "on" : "off"); status.show(); };
+  renderStatus();
+  context.subscriptions.push(status);
+  reg("lb.toggleHotReload", () => { hotReload = !hotReload; renderStatus(); vscode.window.showInformationMessage("LB hot-reload " + (hotReload ? "on" : "off")); });
+  context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(() => {
+    if (!hotReload || !getBridge()) return;
+    clearTimeout(hotTimer);
+    hotTimer = setTimeout(() => buildAndLoad(context, ch, { quiet: true }), 600);
   }));
-  // Headless self-test only: when lb.selfTestOnStartup is set, fire the command
-  // once after activation so a probe can observe the whole path. Off by default
-  // (never auto-builds in a real workspace).
+
+  // REPL: eval a snippet in the client (explicit user action → userGesture).
+  reg("lb.repl", async () => {
+    const bridge = getBridge();
+    if (!bridge) { vscode.window.showErrorMessage("LB REPL: no host configured"); return; }
+    const code = await vscode.window.showInputBox({ prompt: "LB REPL — eval in client", placeHolder: "e.g. mc.player?.getName()?.getString()" });
+    if (!code) return;
+    try { const res = await bridge.repl(code, { userGesture: true }); ch.appendLine("repl> " + code); ch.appendLine("  = " + JSON.stringify(res)); ch.show(true); }
+    catch (e) { vscode.window.showErrorMessage("LB REPL failed: " + (e && e.message || e)); }
+  });
+
+  // Live log stream: subscribe to the client's log(...) output.
+  let unsubLog = null;
+  reg("lb.toggleLogStream", () => {
+    if (unsubLog) { unsubLog(); unsubLog = null; logCh.appendLine("[log stream stopped]"); return; }
+    const bridge = getBridge();
+    if (!bridge || !bridge.subscribeLog) { vscode.window.showErrorMessage("LB logs: no host configured"); return; }
+    logCh.show(true);
+    unsubLog = bridge.subscribeLog((line) => logCh.appendLine(typeof line === "string" ? line : JSON.stringify(line)));
+    context.subscriptions.push({ dispose: () => unsubLog && unsubLog() });
+  });
+
+  // Headless self-test only (off by default): fire buildAndRun once so a probe can observe it.
   if (vscode.workspace.getConfiguration("lb").get("selfTestOnStartup", false)) {
-    setTimeout(() => { vscode.commands.executeCommand("lb.buildAndRun"); }, 3000);
+    setTimeout(() => vscode.commands.executeCommand("lb.buildAndRun"), 3000);
   }
 }
 

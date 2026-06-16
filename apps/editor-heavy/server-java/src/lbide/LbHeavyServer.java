@@ -84,63 +84,65 @@ public final class LbHeavyServer {
         }
         int clen = parseInt(head.get("content-length"), 0);
         String body = clen > 0 ? new String(readN(in, clen), StandardCharsets.UTF_8) : "";
-        handleHttp(out, method, path, head, body);
-        sock.close();
+        boolean keepOpen = handleHttp(out, method, path, head, body);
+        if (!keepOpen) sock.close(); // SSE keeps the socket open (the LogBus sink writes to it)
     }
 
-    private void handleHttp(OutputStream out, String method, String path, Map<String, String> head, String body) throws IOException {
-        if ("OPTIONS".equals(method)) { writeHttp(out, 204, "text/plain", new byte[0], true); return; }
+    /** @return true to keep the socket open (SSE stream); false to close after the response. */
+    private boolean handleHttp(OutputStream out, String method, String path, Map<String, String> head, String body) throws IOException {
+        if ("OPTIONS".equals(method)) { writeHttp(out, 204, "text/plain", new byte[0], true); return false; }
         String p = path.split("\\?")[0];
 
         if (p.equals("/lb/config")) {
             Map<String, Object> cfg = new LinkedHashMap<>();
             cfg.put("bridgeBase", bridgeBase); cfg.put("bridgeToken", token); cfg.put("projectId", projectId);
             writeHttp(out, 200, "application/json", Json.stringify(cfg).getBytes(StandardCharsets.UTF_8), true);
-            return;
+            return false;
         }
-        if (p.startsWith("/api/")) { handleApi(out, method, p, head, body); return; }
+        if (p.startsWith("/api/")) return handleApi(out, method, p, head, body);
 
         // static: mounts first (/devext, /fsext, /typings), then webRoot.
         for (Map.Entry<String, Path> m : mounts.entrySet()) {
-            if (p.startsWith(m.getKey() + "/")) { serveStatic(out, m.getValue(), p.substring(m.getKey().length() + 1)); return; }
+            if (p.startsWith(m.getKey() + "/")) { serveStatic(out, m.getValue(), p.substring(m.getKey().length() + 1)); return false; }
         }
-        if (webRoot != null) { serveStatic(out, webRoot, p.equals("/") ? "index.html" : p.substring(1)); return; }
+        if (webRoot != null) { serveStatic(out, webRoot, p.equals("/") ? "index.html" : p.substring(1)); return false; }
         writeHttp(out, 404, "text/plain", "not found".getBytes(StandardCharsets.UTF_8), true);
+        return false;
     }
 
-    private void handleApi(OutputStream out, String method, String p, Map<String, String> head, String body) throws IOException {
+    private boolean handleApi(OutputStream out, String method, String p, Map<String, String> head, String body) throws IOException {
         if (!token.isEmpty() && !token.equals(head.get("x-ide-token"))
                 && !("/api/repl/stream".equals(p) && token.equals(queryParam(head.get(":query"), "token")))) {
-            writeJson(out, 403, mapOf("ok", false, "error", "forbidden")); return;
+            writeJson(out, 403, mapOf("ok", false, "error", "forbidden")); return false;
         }
         switch (p) {
-            case "/api/ping": writeJson(out, 200, ops.ping()); return;
-            case "/api/projects": writeJsonList(out, 200, ops.projects()); return;
+            case "/api/ping": writeJson(out, 200, ops.ping()); return false;
+            case "/api/projects": writeJsonList(out, 200, ops.projects()); return false;
             case "/api/save": {
                 Map<String, Object> proj = Json.obj(Json.parse(body));
-                writeJson(out, 200, ops.save(proj)); return;
+                writeJson(out, 200, ops.save(proj)); return false;
             }
             case "/api/load": {
                 Map<String, Object> a = Json.obj(Json.parse(body));
-                if (!Json.bool(a.get("userGesture"))) { writeJson(out, 403, mapOf("ok", false, "error", "load requires an explicit user action")); return; }
-                writeJson(out, 200, ops.load(Json.str(a.get("name")), Json.str(a.get("mjs")), Json.bool(a.get("debug")))); return;
+                if (!Json.bool(a.get("userGesture"))) { writeJson(out, 403, mapOf("ok", false, "error", "load requires an explicit user action")); return false; }
+                writeJson(out, 200, ops.load(Json.str(a.get("name")), Json.str(a.get("mjs")), Json.bool(a.get("debug")))); return false;
             }
             case "/api/repl": {
                 Map<String, Object> a = Json.obj(Json.parse(body));
-                if (!Json.bool(a.get("userGesture"))) { writeJson(out, 403, mapOf("ok", false, "error", "repl requires an explicit user action")); return; }
-                writeJson(out, 200, ops.repl(Json.str(a.get("code")))); return;
+                if (!Json.bool(a.get("userGesture"))) { writeJson(out, 403, mapOf("ok", false, "error", "repl requires an explicit user action")); return false; }
+                writeJson(out, 200, ops.repl(Json.str(a.get("code")))); return false;
             }
             case "/api/repl/stream": {
-                // SSE: keep the socket open and stream log lines.
+                // SSE: keep the socket open and stream log lines (caller must NOT close it).
                 out.write(("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream; charset=utf-8\r\nCache-Control: no-cache\r\n"
                         + coiHeaderBlock() + "Connection: keep-alive\r\n\r\n").getBytes(StandardCharsets.UTF_8));
                 out.flush();
-                LogBus.Sink sink = line -> { try { out.write(("data: " + Json.stringify(line) + "\n\n").getBytes(StandardCharsets.UTF_8)); out.flush(); } catch (IOException e) { throw new RuntimeException(e); } };
+                LogBus.Sink sink = line -> { synchronized (out) { out.write(("data: " + Json.stringify(line) + "\n\n").getBytes(StandardCharsets.UTF_8)); out.flush(); } };
                 logBus.add(sink);
                 sink.onLog("[log stream connected]");
-                return; // leave open; the bus removes the sink when a write throws
+                return true; // leave open; the bus removes the sink when a write throws
             }
-            default: writeJson(out, 404, mapOf("ok", false, "error", "unknown")); return;
+            default: writeJson(out, 404, mapOf("ok", false, "error", "unknown")); return false;
         }
     }
 

@@ -6,7 +6,13 @@
   "browser": "./dist/extension.js",
   "activationEvents": ["onStartupFinished"],
   "contributes": {
-    "commands": [{ "command": "lb.buildAndRun", "title": "LB: Build & Run in Client" }],
+    "commands": [
+      { "command": "lb.buildAndRun", "title": "LB: Build & Run in Client" },
+      { "command": "lb.buildAndDebug", "title": "LB: Build & Debug in Client (inspector :9229)" },
+      { "command": "lb.toggleHotReload", "title": "LB: Toggle Hot-Reload" },
+      { "command": "lb.repl", "title": "LB: REPL (eval in client)" },
+      { "command": "lb.toggleLogStream", "title": "LB: Toggle Live Log Stream" }
+    ],
     "configuration": {
       "title": "LB Glue",
       "properties": {

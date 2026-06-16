@@ -86,9 +86,10 @@ class LbFs {
     // seed user project files
     for (const [p, content] of Object.entries(proj.files)) this._set("/" + p, enc.encode(content));
     // seed provisioned files (excluded from writeback): barrel typings, a tsconfig
-    // that pulls them in, and .vscode/settings.json so the lb-glue build command
-    // can reach the SAME bridge (build & run in client).
-    const settings = JSON.stringify({ "lb.hostBase": cfg.bridgeBase, "lb.hostToken": cfg.bridgeToken }, null, 2);
+    // that pulls them in, and .vscode/settings.json so lb-glue's commands reach the
+    // SAME bridge. Inject the RESOLVED absolute base (not "self") so the glue, which
+    // can't resolve "self", gets a directly-usable http(s)/ws(s) base.
+    const settings = JSON.stringify({ "lb.hostBase": bridgeBase || "", "lb.hostToken": cfg.bridgeToken }, null, 2);
     for (const [p, content] of [["/barrel.d.ts", barrel], ["/ambient.d.ts", ambient], ["/tsconfig.json", TSCONFIG], ["/.vscode/settings.json", settings]]) {
       this._set(p, enc.encode(content)); this.provisioned.add(p);
     }
