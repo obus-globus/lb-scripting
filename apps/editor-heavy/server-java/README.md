@@ -34,7 +34,7 @@ java -cp out lbide.LbHeavyServer \
   --port 8900 \
   --web    <dist>            # static bundle (index.html, out/, devext/, fsext/, typings/, …)
   --token  <session-token> \
-  --origins https://cb.2d.rocks,        # WS Origin allowlist (comma-separated; trailing , allows "")
+  --origins https://cb.2d.rocks         # WS Origin allowlist (comma-separated; empty/absent Origin is always rejected)
   --bridgeBase self|ws://…|<empty> \    # what /lb/config advertises (see below)
   --project demo-proj \
   --projects /path/to/lb-ide/projects   # <id>.json store (mirrors the in-client host)

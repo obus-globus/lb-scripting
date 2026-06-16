@@ -13,6 +13,8 @@ import java.util.Map;
 final class Json {
     private final String s;
     private int i;
+    private int depth;
+    private static final int MAX_DEPTH = 64; // guard against stack-overflow from deeply nested input
     private Json(String s) { this.s = s; }
 
     static Object parse(String s) {
@@ -23,6 +25,9 @@ final class Json {
         return v;
     }
 
+    // checked single-char read (throws instead of StringIndexOutOfBounds on truncated input)
+    private char next() { if (i >= s.length()) throw new RuntimeException("unexpected end of JSON"); return s.charAt(i++); }
+
     @SuppressWarnings("unchecked")
     static Map<String, Object> obj(Object o) { return o instanceof Map ? (Map<String, Object>) o : new LinkedHashMap<>(); }
     static String str(Object o) { return o == null ? null : String.valueOf(o); }
@@ -31,6 +36,7 @@ final class Json {
     private void ws() { while (i < s.length() && Character.isWhitespace(s.charAt(i))) i++; }
 
     private Object value() {
+        if (i >= s.length()) throw new RuntimeException("unexpected end of JSON");
         char c = s.charAt(i);
         switch (c) {
             case '{': return object();
@@ -44,43 +50,51 @@ final class Json {
     }
 
     private Map<String, Object> object() {
-        Map<String, Object> m = new LinkedHashMap<>();
-        i++; ws();
-        if (s.charAt(i) == '}') { i++; return m; }
-        while (true) {
-            ws();
-            String k = string();
-            ws(); i++; /* : */ ws();
-            m.put(k, value());
-            ws();
-            char c = s.charAt(i++);
-            if (c == '}') break;
-        }
-        return m;
+        if (++depth > MAX_DEPTH) throw new RuntimeException("JSON nesting too deep");
+        try {
+            Map<String, Object> m = new LinkedHashMap<>();
+            i++; ws();
+            if (next() == '}') { return m; }
+            i--; // not '}', step back and parse entries
+            while (true) {
+                ws();
+                String k = string();
+                ws(); next(); /* : */ ws();
+                m.put(k, value());
+                ws();
+                char c = next();
+                if (c == '}') break;
+            }
+            return m;
+        } finally { depth--; }
     }
 
     private List<Object> array() {
-        List<Object> a = new ArrayList<>();
-        i++; ws();
-        if (s.charAt(i) == ']') { i++; return a; }
-        while (true) {
-            ws();
-            a.add(value());
-            ws();
-            char c = s.charAt(i++);
-            if (c == ']') break;
-        }
-        return a;
+        if (++depth > MAX_DEPTH) throw new RuntimeException("JSON nesting too deep");
+        try {
+            List<Object> a = new ArrayList<>();
+            i++; ws();
+            if (next() == ']') { return a; }
+            i--; // not ']', step back and parse elements
+            while (true) {
+                ws();
+                a.add(value());
+                ws();
+                char c = next();
+                if (c == ']') break;
+            }
+            return a;
+        } finally { depth--; }
     }
 
     private String string() {
         StringBuilder b = new StringBuilder();
-        i++; /* opening quote */
+        next(); /* opening quote */
         while (true) {
-            char c = s.charAt(i++);
+            char c = next();
             if (c == '"') break;
             if (c == '\\') {
-                char e = s.charAt(i++);
+                char e = next();
                 switch (e) {
                     case 'n': b.append('\n'); break;
                     case 't': b.append('\t'); break;
@@ -90,7 +104,7 @@ final class Json {
                     case '/': b.append('/'); break;
                     case '\\': b.append('\\'); break;
                     case '"': b.append('"'); break;
-                    case 'u': b.append((char) Integer.parseInt(s.substring(i, i + 4), 16)); i += 4; break;
+                    case 'u': if (i + 4 > s.length()) throw new RuntimeException("bad \\u escape"); b.append((char) Integer.parseInt(s.substring(i, i + 4), 16)); i += 4; break;
                     default: b.append(e);
                 }
             } else {
@@ -103,6 +117,7 @@ final class Json {
     private Object number() {
         int start = i;
         while (i < s.length() && "+-0123456789.eE".indexOf(s.charAt(i)) >= 0) i++;
+        if (i == start) throw new RuntimeException("invalid JSON value");
         return Double.parseDouble(s.substring(start, i));
     }
 
@@ -115,6 +130,8 @@ final class Json {
     private static void write(StringBuilder b, Object o) {
         if (o == null) { b.append("null"); return; }
         if (o instanceof String) { writeStr(b, (String) o); return; }
+        // integral doubles → no ".0" (parse widens every number to Double; keep ints as ints on the wire)
+        if (o instanceof Double) { double d = (Double) o; if (d == Math.rint(d) && !Double.isInfinite(d)) b.append(Long.toString((long) d)); else b.append(Double.toString(d)); return; }
         if (o instanceof Boolean || o instanceof Number) { b.append(o.toString()); return; }
         if (o instanceof Map) {
             b.append('{');

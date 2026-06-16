@@ -52,6 +52,7 @@ public final class LbHeavyServer {
     private final Ops ops;
     private final LogBus logBus = new LogBus();
     private static final int MAX_FRAME = 16 * 1024 * 1024;   // reject oversized WS frames (OOM guard)
+    private static final int MAX_BODY = 16 * 1024 * 1024;    // reject oversized HTTP bodies (OOM guard)
     private static final int HEADER_TIMEOUT_MS = 15000;       // slow-loris guard on the HTTP head read
     private final ExecutorService pool = Executors.newFixedThreadPool(64); // bounded (single-user local server)
 
@@ -83,6 +84,7 @@ public final class LbHeavyServer {
             return;
         }
         int clen = parseInt(head.get("content-length"), 0);
+        if (clen > MAX_BODY) { writeJson(out, 413, mapOf("ok", false, "error", "request too large")); sock.close(); return; }
         String body = clen > 0 ? new String(readN(in, clen), StandardCharsets.UTF_8) : "";
         sock.setSoTimeout(0); // head+body read; clear so a long-lived SSE read doesn't time out
         handleHttp(in, out, method, path, head, body);
@@ -155,7 +157,9 @@ public final class LbHeavyServer {
     // ---- WebSocket ------------------------------------------------------------
     private void handleWebSocket(Socket sock, InputStream in, OutputStream out, Map<String, String> head) throws IOException {
         String origin = head.getOrDefault("origin", "");
-        if (!allowedOrigins.contains(origin)) {
+        // Reject an empty/absent Origin outright (browsers ALWAYS send it on WS) so a
+        // stray trailing "," in --origins can't admit no-Origin (non-browser) clients.
+        if (origin.isEmpty() || !allowedOrigins.contains(origin)) {
             System.out.println("[ws] REJECT origin=" + (origin.isEmpty() ? "(none)" : origin));
             out.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n".getBytes(StandardCharsets.UTF_8));
             out.flush(); sock.close(); return;
