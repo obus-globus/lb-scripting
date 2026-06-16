@@ -128,23 +128,29 @@ candidate formats — **recommend (A)** for v1, keep (B) as a documented extensi
   git client (the in-client host has none; the browser can't clone). **Out of scope
   for v1** — note it as a possible host-side follow-up.
 
-**v1 source model (scorpion's decision): our script repo + a configurable folder.**
-The default source is `{ repo, folder }` — a GitHub repo and a folder within it that
-is the templates/examples **root**, with **category subfolders** inside (each holding
-that category's template/example files). The fetch enumerates that folder structure
-via the **GitHub Contents API** (`https://api.github.com/repos/<repo>/contents/<folder>?ref=<branch>`,
-which sends CORS `access-control-allow-origin: *` → **editor-fetch is CORS-clean**, no
-host-fetch needed), mapping each category subfolder → a `categories[]` entry and its
-files → `base.files` (+ `examples`/`aux` where the subfolder structure indicates).
-A configured source is `{ id, name, repo, folder, ref, addedAt }`. **v1 ships only the
-single default source (no add-custom-repo UI)** — the architecture supports more, but
-exposing it is gated on the untrusted-source warning UX (§v1 decisions). Placeholder
-`{repo, folder}` constant until scorpion supplies the exact values.
+**v1 source model (scorpion's decision): a CI-generated single `templates.json`.**
+The default source is **our repo `obus-globus/lb-scripting`** (confirmed). Rather than
+enumerate the repo live, a **GitHub Action runs the gen-templates pass** over the
+repo's category-shaped template/example folders whenever they change and commits/
+publishes **one `templates.json`** (the same artifact shape the local bundle uses).
+The editor fetches **that single file** at runtime from a **CORS-clean raw URL** (e.g.
+`raw.githubusercontent.com/<repo>/<ref>/<path>/templates.json`, which sends
+`access-control-allow-origin: *` → editor-fetch, no host-fetch, no SSRF). This is the
+**same mechanism as the local bundle, just run in CI on the repo**, and it **decouples
+template updates from editor redeploys** (edit templates → Action regenerates the JSON →
+editor picks it up on next fetch).
+A configured source is `{ id, name, url, ref }` where `url` is the raw `templates.json`
+URL. **v1 ships only this single default source (no add-custom-repo UI)** — the
+architecture supports more, but exposing it is gated on the untrusted-source warning UX
+(§v1 decisions). Placeholder `url` constant until the Action lands + publishes.
 
-(Best guess from the codebase, to confirm: **repo = `obus-globus/lb-scripting`,
-folder = `templates/`** — its subdirs `default-ts`/`plain-js`/`starter-ts`/`inject-ts`
-are already category-shaped. There's also a sibling `obus-globus/lb-inject` but that's
-the inject runtime, not templates.)
+**Repo work (part of the fetch step):** design the repo's template folder structure
+(category-shaped, like the existing local `templates/`: `default-ts`/`plain-js`/…) and
+add the GitHub Action (`.github/workflows/`) that runs gen-templates on change and
+commits the published `templates.json`. The editor's fetched-source format is then
+identical to the bundled `templates.json` (so the merge in §1 is trivial — same shape).
+Note: since the source is **our own CI artifact** (trusted), the import strip/validate
+(§3) still runs as defense-in-depth + the foundation for later custom (untrusted) repos.
 
 ### 1.3 Fetch mechanism: editor-fetch vs host-fetch
 
@@ -299,10 +305,11 @@ Reviewable steps, lean green each step, sub-agent review at the boundary:
 2. **Lean New-menu merge** (tier1 ∪ host templates) + origin badges. Lean stays green.
 3. **Save-as-template + Duplicate-and-edit** (lean). Includes the §3.1 import
    content-policy (strip/validate build-config + `.vscode/`/dotfiles).
-4. **Fetch-from-source** — **editor-fetch only for v1** (SSRF surface = 0) from the
-   single default `{repo, folder}` source via the GitHub Contents API; enumerate
-   category subfolders → `categories[]`, validate + strip per §3. Host-fetch is a
-   gated follow-up only if approved (then the §3.3 allow-list + IP-pinning guard).
+4. **Fetch-from-source** — **editor-fetch only for v1** (SSRF surface = 0): fetch the
+   single CI-published `templates.json` raw URL, validate + strip per §3, merge into the
+   New menu (origin=fetched). **Plus repo work:** design the category-shaped template
+   folders in `lb-scripting` + a GitHub Action that regenerates/commits `templates.json`
+   on change. Host-fetch is a gated follow-up only if approved (then §3.3 guard).
 5. **Template/source manager UI** (lean).
 6. **(optional) heavy "New from template"** group in the Open QuickPick. If it lands,
    blocklist `.vscode/`/dotfiles on import (heavy vscode-web DOES honor those, unlike

@@ -39,7 +39,8 @@ async function dbPut(store, key, val) { const db = await idb(); return new Promi
 async function dbDel(store, key) { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction(store, "readwrite").objectStore(store).delete(key); t.onsuccess = () => res(); t.onerror = () => rej(t.error); }); }
 
 // ---------------------------------------------------------------- state
-let CATEGORIES = [];
+let CATEGORIES = [];                      // bundled templates (templates.json)
+let userTemplates = [];                   // user/fetched template docs from the bridge (lb-ide/templates/)
 let INJECT_DTS = "";
 let injectBundle = null; // lazily fetched lb-inject runtime
 let baseExtraLibs = [];
@@ -404,7 +405,26 @@ async function loadProject(id) {
   renderTabs();
   return true;
 }
-function categoryById(cid) { return CATEGORIES.find((c) => c.id === cid) || CATEGORIES[0]; }
+// Merge bundled (tier1) + user/fetched (tier2/3) templates for the New menu, keyed by
+// id — a user/fetched template SHADOWS a bundled one with the same id. Each entry
+// carries `_origin` ("bundled" | "user" | "fetched") + `_sourceId` for the badge.
+function mergedCategories() {
+  const out = CATEGORIES.map((c) => ({ ...c, _origin: "bundled" }));
+  const byId = new Map(out.map((c, i) => [c.id, i]));
+  for (const t of userTemplates) {
+    if (!t || !t.id || !t.base || !t.base.files) continue;        // skip malformed docs
+    const entry = { ...t, examples: t.examples || [], aux: t.aux || [], _origin: t.origin || "user", _sourceId: t.sourceId };
+    if (byId.has(t.id)) out[byId.get(t.id)] = entry;              // shadow bundled
+    else { byId.set(t.id, out.length); out.push(entry); }
+  }
+  return out;
+}
+function categoryById(cid) { const m = mergedCategories(); return m.find((c) => c.id === cid) || m[0]; }
+// Pull user/fetched templates from the bridge into the New menu (no-op when offline).
+async function refreshTemplates() {
+  if (!bridge || !bridgeOn) { userTemplates = []; return; }
+  try { userTemplates = (await bridge.templates()) || []; } catch { userTemplates = []; }
+}
 async function createProject(catId, exampleId, opts = {}) {
   const cat = categoryById(catId);
   const ex = exampleId ? cat.examples.find((e) => e.id === exampleId) : null;
@@ -486,9 +506,18 @@ function showTemplateMenu() {
     sub.style.left = Math.max(6, left) + "px";
     sub.style.top = Math.min(rr.top, window.innerHeight - sub.offsetHeight - 6) + "px";
   };
-  for (const cat of CATEGORIES) {
+  for (const cat of mergedCategories()) {
     const row = document.createElement("div"); row.className = "row";
-    row.innerHTML = "<span>" + cat.name + "</span><span class='arrow'>▸</span>";
+    const label = document.createElement("span"); label.textContent = cat.name;
+    row.appendChild(label);
+    // provenance badge for non-bundled templates (user / fetched source)
+    if (cat._origin && cat._origin !== "bundled") {
+      const badge = document.createElement("span"); badge.className = "badge";
+      badge.textContent = cat._origin === "fetched" ? (cat._sourceId || "fetched") : "custom";
+      badge.title = cat._origin === "fetched" ? ("from source: " + (cat._sourceId || "?") + " — review before running") : "your saved template";
+      row.appendChild(badge);
+    }
+    const arrow = document.createElement("span"); arrow.className = "arrow"; arrow.textContent = "▸"; row.appendChild(arrow);
     row.onmouseenter = () => openSub(cat, row);
     row.onclick = () => openSub(cat, row);
     menu.appendChild(row);
@@ -1030,6 +1059,7 @@ require(["vs/editor/editor.main"], async () => {
         }
         if (added) { await saveMeta(); renderTabs(); log("restored " + added + " project(s) from disk", "d"); }
       } catch { /* */ }
+      await refreshTemplates();  // pull user/fetched templates into the New menu
     } catch { /* not in-client */ }
   })();
   async function loadToClient() {
