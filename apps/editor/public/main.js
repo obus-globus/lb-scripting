@@ -601,7 +601,8 @@ async function saveCurrentAsTemplate() {
 // Template/source manager: a popup listing the default source (with a manual
 // "fetch latest"), the user's own templates (duplicate & edit / delete), and the
 // fetched templates (duplicate & edit). Anchored to the New button.
-function openTemplateManager() {
+async function openTemplateManager() {
+  await refreshTemplates(); // reflect any out-of-band bridge changes (don't render a stale snapshot)
   showPop($("newProj"), (el) => {
     const head = (txt) => { const d = document.createElement("div"); d.className = "item"; d.style.cssText = "cursor:default;font-size:11px;color:var(--fgdim);text-transform:uppercase;letter-spacing:.04em"; d.textContent = txt; el.appendChild(d); };
     const sep = () => { const s = document.createElement("div"); s.className = "sep"; el.appendChild(s); };
@@ -931,6 +932,7 @@ async function importFiles(fileList) {
 function hidePop() { const p = $("pop"); p.style.display = "none"; p.innerHTML = ""; document.removeEventListener("mousedown", popDismiss, true); }
 function popDismiss(e) { const p = $("pop"); if (!p.contains(e.target)) hidePop(); }
 function showPop(anchor, build) {
+  document.removeEventListener("mousedown", popDismiss, true); // drop any prior listener (reopen without hidePop won't leak)
   const p = $("pop"); p.innerHTML = ""; build(p); p.style.display = "block";
   const r = anchor.getBoundingClientRect();
   p.style.left = Math.max(6, Math.min(r.left, window.innerWidth - p.offsetWidth - 8)) + "px";
