@@ -119,6 +119,10 @@ public final class LbHeavyServer {
             case "/api/projects": writeJsonList(out, 200, ops.projects()); return;
             case "/api/scripts": writeJsonList(out, 200, ops.scripts()); return;
             case "/api/script": writeJson(out, 200, ops.script(queryParam(head.get(":query"), "name"))); return;
+            case "/api/templates": writeJsonList(out, 200, ops.templates()); return;
+            case "/api/template": writeJson(out, 200, ops.template(queryParam(head.get(":query"), "id"))); return;
+            case "/api/template/save": writeJson(out, 200, ops.saveTemplate(Json.obj(Json.parse(body)))); return;
+            case "/api/template/delete": writeJson(out, 200, ops.deleteTemplate(Json.str(Json.obj(Json.parse(body)).get("id")))); return;
             case "/api/save": writeJson(out, 200, ops.save(Json.obj(Json.parse(body)))); return;
             case "/api/load": {
                 Map<String, Object> a = Json.obj(Json.parse(body));
@@ -209,6 +213,10 @@ public final class LbHeavyServer {
             case "projects": return ops.projects();
             case "scripts": return ops.scripts();
             case "script": return ops.script(Json.str(a.get("name")));
+            case "templates": return ops.templates();
+            case "template": return ops.template(Json.str(a.get("id")));
+            case "saveTemplate": return ops.saveTemplate(Json.obj(a.get("template")));
+            case "deleteTemplate": return ops.deleteTemplate(Json.str(a.get("id")));
             case "save": return ops.save(Json.obj(a.get("project")));
             case "load":
                 if (!Json.bool(a.get("userGesture"))) throw new RuntimeException("load requires an explicit user action");
@@ -381,8 +389,9 @@ public final class LbHeavyServer {
         String projectId = a.getOrDefault("project", "demo-proj");
         Path projDir = Path.of(a.getOrDefault("projects", "/tmp/lb-heavy-projects"));
         Path scriptsDir = Path.of(a.getOrDefault("scripts", "/tmp/lb-heavy-scripts"));
+        Path templatesDir = Path.of(a.getOrDefault("templates", "/tmp/lb-heavy-templates"));
         LbHeavyServer[] self = new LbHeavyServer[1];
-        FileOps ops = new FileOps(projDir, scriptsDir, line -> { System.out.println("[ops] " + line); if (self[0] != null) self[0].publishLog(line); });
+        FileOps ops = new FileOps(projDir, scriptsDir, templatesDir, line -> { System.out.println("[ops] " + line); if (self[0] != null) self[0].publishLog(line); });
         self[0] = new LbHeavyServer(port, webRoot, mounts, token, origins, bridgeBase, projectId, ops);
         self[0].start();
     }

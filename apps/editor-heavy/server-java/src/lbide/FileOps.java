@@ -18,14 +18,16 @@ import java.util.Map;
 final class FileOps implements Ops {
     private final Path projDir;
     private final Path scriptsDir;   // the LiquidBounce scripts/ folder (installed .js/.mjs)
+    private final Path templatesDir; // lb-ide/templates/ (user + fetched template docs)
     private final java.util.function.Consumer<String> log;
     Map<String, Object> lastLoad;
 
-    FileOps(Path projDir, Path scriptsDir, java.util.function.Consumer<String> log) {
+    FileOps(Path projDir, Path scriptsDir, Path templatesDir, java.util.function.Consumer<String> log) {
         this.projDir = projDir;
         this.scriptsDir = scriptsDir;
+        this.templatesDir = templatesDir;
         this.log = log;
-        try { Files.createDirectories(projDir); Files.createDirectories(scriptsDir); } catch (IOException e) { throw new UncheckedIOException(e); }
+        try { Files.createDirectories(projDir); Files.createDirectories(scriptsDir); Files.createDirectories(templatesDir); } catch (IOException e) { throw new UncheckedIOException(e); }
     }
 
     private static String sanitizeId(Object id) {
@@ -64,6 +66,45 @@ final class FileOps implements Ops {
         Path p = scriptsDir.resolve(fname);
         if (!Files.exists(p)) { r.put("ok", false); return r; }
         try { r.put("ok", true); r.put("name", name); r.put("content", Files.readString(p)); }
+        catch (IOException e) { r.put("ok", false); r.put("error", e.getMessage()); }
+        return r;
+    }
+
+    @Override public List<Object> templates() {
+        List<Object> out = new ArrayList<>();
+        try (DirectoryStream<Path> ds = Files.newDirectoryStream(templatesDir, "*.json")) {
+            for (Path p : ds) { try { out.add(Json.parse(Files.readString(p))); } catch (Exception ignored) { /* skip bad file */ } }
+        } catch (IOException ignored) { /* empty */ }
+        return out;
+    }
+
+    @Override public Map<String, Object> template(String id) {
+        Map<String, Object> r = new LinkedHashMap<>();
+        String sid = sanitizeId(id);
+        if (sid.isEmpty()) { r.put("ok", false); return r; }
+        Path p = templatesDir.resolve(sid + ".json");
+        if (!Files.exists(p)) { r.put("ok", false); return r; }
+        try { return Json.obj(Json.parse(Files.readString(p))); }
+        catch (Exception e) { r.put("ok", false); r.put("error", e.getMessage()); return r; }
+    }
+
+    @Override public Map<String, Object> saveTemplate(Map<String, Object> tmpl) {
+        String id = sanitizeId(tmpl.get("id"));
+        Map<String, Object> r = new LinkedHashMap<>();
+        if (id.isEmpty()) { r.put("ok", false); r.put("error", "bad template id"); return r; }
+        try {
+            Files.writeString(templatesDir.resolve(id + ".json"), Json.stringify(tmpl));
+            log.accept("saveTemplate " + id);
+            r.put("ok", true); r.put("id", id);
+        } catch (IOException e) { r.put("ok", false); r.put("error", e.getMessage()); }
+        return r;
+    }
+
+    @Override public Map<String, Object> deleteTemplate(String id) {
+        String sid = sanitizeId(id);
+        Map<String, Object> r = new LinkedHashMap<>();
+        if (sid.isEmpty()) { r.put("ok", false); r.put("error", "bad template id"); return r; }
+        try { boolean del = Files.deleteIfExists(templatesDir.resolve(sid + ".json")); log.accept("deleteTemplate " + sid); r.put("ok", true); r.put("deleted", del); }
         catch (IOException e) { r.put("ok", false); r.put("error", e.getMessage()); }
         return r;
     }

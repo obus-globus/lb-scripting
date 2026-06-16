@@ -32,6 +32,11 @@ function createHttpBridge({ base = "", token = "", fetchImpl = fetch } = {}) {
     scripts: () => json("api/scripts", { method: "GET" }),
     /** Read one installed script's text → {ok, name, content}. */
     script: (name) => json("api/script?name=" + encodeURIComponent(name), { method: "GET" }),
+    /** User/fetched template docs (list), one by id, save, delete (lb-ide/templates/). */
+    templates: () => json("api/templates", { method: "GET" }),
+    template: (id) => json("api/template?id=" + encodeURIComponent(id), { method: "GET" }),
+    saveTemplate: (tmpl) => post("api/template/save", tmpl),
+    deleteTemplate: (id) => post("api/template/delete", { id }),
     save: (project) => call("api/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(project) }),
     // load/repl run code in the client; `userGesture` flags an explicit user action
     // (the server may require it). Forwarded on both transports.
@@ -93,6 +98,10 @@ function createWsBridge({ base = "", token = "", WebSocketImpl } = {}) {
     projects: () => send("projects"),
     scripts: () => send("scripts"),
     script: (name) => send("script", { name }),
+    templates: () => send("templates"),
+    template: (id) => send("template", { id }),
+    saveTemplate: (tmpl) => send("saveTemplate", { template: tmpl }),
+    deleteTemplate: (id) => send("deleteTemplate", { id }),
     save: (project) => send("save", { project }),
     load: ({ name, mjs, debug, userGesture }) => send("load", { name, mjs, debug, userGesture }),
     repl: (code, opts = {}) => send("repl", { code, userGesture: opts.userGesture }),

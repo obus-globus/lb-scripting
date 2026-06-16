@@ -128,10 +128,23 @@ candidate formats — **recommend (A)** for v1, keep (B) as a documented extensi
   git client (the in-client host has none; the browser can't clone). **Out of scope
   for v1** — note it as a possible host-side follow-up.
 
-A configured source is just `{ id, name, baseUrl, addedAt }`. The **default source**
-is our own repo (pending scorpion's confirm on the exact URL — likely the published
-`templates.json` under the existing deploy, or the GitHub raw of `lb-scripting`).
-Users add more by URL.
+**v1 source model (scorpion's decision): our script repo + a configurable folder.**
+The default source is `{ repo, folder }` — a GitHub repo and a folder within it that
+is the templates/examples **root**, with **category subfolders** inside (each holding
+that category's template/example files). The fetch enumerates that folder structure
+via the **GitHub Contents API** (`https://api.github.com/repos/<repo>/contents/<folder>?ref=<branch>`,
+which sends CORS `access-control-allow-origin: *` → **editor-fetch is CORS-clean**, no
+host-fetch needed), mapping each category subfolder → a `categories[]` entry and its
+files → `base.files` (+ `examples`/`aux` where the subfolder structure indicates).
+A configured source is `{ id, name, repo, folder, ref, addedAt }`. **v1 ships only the
+single default source (no add-custom-repo UI)** — the architecture supports more, but
+exposing it is gated on the untrusted-source warning UX (§v1 decisions). Placeholder
+`{repo, folder}` constant until scorpion supplies the exact values.
+
+(Best guess from the codebase, to confirm: **repo = `obus-globus/lb-scripting`,
+folder = `templates/`** — its subdirs `default-ts`/`plain-js`/`starter-ts`/`inject-ts`
+are already category-shaped. There's also a sibling `obus-globus/lb-inject` but that's
+the inject runtime, not templates.)
 
 ### 1.3 Fetch mechanism: editor-fetch vs host-fetch
 
@@ -286,9 +299,10 @@ Reviewable steps, lean green each step, sub-agent review at the boundary:
 2. **Lean New-menu merge** (tier1 ∪ host templates) + origin badges. Lean stays green.
 3. **Save-as-template + Duplicate-and-edit** (lean). Includes the §3.1 import
    content-policy (strip/validate build-config + `.vscode/`/dotfiles).
-4. **Fetch-from-source** — **editor-fetch only for v1** (SSRF surface = 0), with full
-   content validation; host-fetch is a gated follow-up only if approved (then it must
-   ship the §3.3 allow-list + IP-pinning guard).
+4. **Fetch-from-source** — **editor-fetch only for v1** (SSRF surface = 0) from the
+   single default `{repo, folder}` source via the GitHub Contents API; enumerate
+   category subfolders → `categories[]`, validate + strip per §3. Host-fetch is a
+   gated follow-up only if approved (then the §3.3 allow-list + IP-pinning guard).
 5. **Template/source manager UI** (lean).
 6. **(optional) heavy "New from template"** group in the Open QuickPick. If it lands,
    blocklist `.vscode/`/dotfiles on import (heavy vscode-web DOES honor those, unlike

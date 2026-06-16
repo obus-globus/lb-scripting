@@ -170,7 +170,9 @@ export function startServer(opts: ServerOpts): boolean {
   const get = (...p: string[]): unknown => (Paths.get as (a: string, ...r: string[]) => unknown)(p[0], ...p.slice(1));
   const editorDir = get(root, opts.editorDirName);
   const projDir = get(root, "lb-ide", "projects");
+  const templatesDir = get(root, "lb-ide", "templates");
   try { (Files.createDirectories as (p: unknown) => unknown)(projDir); } catch { /* */ }
+  try { (Files.createDirectories as (p: unknown) => unknown)(templatesDir); } catch { /* */ }
 
   const editorDirNorm = (editorDir as unknown as { normalize(): { startsWith(p: unknown): boolean } }).normalize();
   const serveFile = (outs: { write(b: unknown): void; flush(): void }, rel: string): void => {
@@ -195,6 +197,13 @@ export function startServer(opts: ServerOpts): boolean {
     try { for (const p of (Files.newDirectoryStream as (d: unknown, g: string) => Iterable<unknown>)(projDir, "*.json")) { try { out.push(JSON.parse(String((Files.readString as (x: unknown) => unknown)(p)))); } catch { /* */ } } } catch { /* */ }
     return out;
   };
+  const readTemplates = (): unknown[] => {
+    const out: unknown[] = [];
+    try { for (const p of (Files.newDirectoryStream as (d: unknown, g: string) => Iterable<unknown>)(templatesDir, "*.json")) { try { out.push(JSON.parse(String((Files.readString as (x: unknown) => unknown)(p)))); } catch { /* */ } } } catch { /* */ }
+    return out;
+  };
+  // template id → single safe segment (no traversal out of templatesDir)
+  const tplId = (v: unknown): string => (typeof v === "string" ? v.replace(/[^a-z0-9._-]/gi, "") : "");
 
   const handle = (sock: { getInputStream(): unknown; getOutputStream(): unknown; close(): void }): void => {
     try {
@@ -235,6 +244,34 @@ export function startServer(opts: ServerOpts): boolean {
           if (!id) { writeText(outs, 400, "Bad Request", MIME.json, JSON.stringify({ ok: false })); sock.close(); return; }
           (Files.writeString as (p: unknown, s: unknown) => unknown)((projDir as { resolve(s: string): unknown }).resolve(id + ".json"), JSON.stringify(proj));
           writeText(outs, 200, "OK", MIME.json, JSON.stringify({ ok: true, id }));
+        } catch { writeText(outs, 400, "Bad Request", MIME.json, JSON.stringify({ ok: false })); }
+        sock.close(); return;
+      }
+      // --- template store (lb-ide/templates/): list / get / save / delete ---
+      if (method === "GET" && path === "/api/templates") { writeText(outs, 200, "OK", MIME.json, JSON.stringify(readTemplates())); sock.close(); return; }
+      if (method === "GET" && path === "/api/template") {
+        const id = tplId(req.query.id || "");
+        const fp = (templatesDir as { resolve(s: string): unknown }).resolve(id + ".json");
+        if (!id || !(Files.exists as (x: unknown) => boolean)(fp)) writeText(outs, 404, "Not Found", MIME.json, JSON.stringify({ ok: false }));
+        else writeText(outs, 200, "OK", MIME.json, String((Files.readString as (x: unknown) => unknown)(fp)));
+        sock.close(); return;
+      }
+      if (method === "POST" && path === "/api/template/save") {
+        try {
+          const tmpl = JSON.parse(body) as { id?: unknown };
+          const id = tplId(tmpl.id);
+          if (!id) { writeText(outs, 400, "Bad Request", MIME.json, JSON.stringify({ ok: false })); sock.close(); return; }
+          (Files.writeString as (p: unknown, s: unknown) => unknown)((templatesDir as { resolve(s: string): unknown }).resolve(id + ".json"), JSON.stringify(tmpl));
+          writeText(outs, 200, "OK", MIME.json, JSON.stringify({ ok: true, id }));
+        } catch { writeText(outs, 400, "Bad Request", MIME.json, JSON.stringify({ ok: false })); }
+        sock.close(); return;
+      }
+      if (method === "POST" && path === "/api/template/delete") {
+        try {
+          const id = tplId((JSON.parse(body) as { id?: unknown }).id);
+          if (!id) { writeText(outs, 400, "Bad Request", MIME.json, JSON.stringify({ ok: false })); sock.close(); return; }
+          const del = (Files.deleteIfExists as (x: unknown) => boolean)((templatesDir as { resolve(s: string): unknown }).resolve(id + ".json"));
+          writeText(outs, 200, "OK", MIME.json, JSON.stringify({ ok: true, deleted: del }));
         } catch { writeText(outs, 400, "Bad Request", MIME.json, JSON.stringify({ ok: false })); }
         sock.close(); return;
       }
