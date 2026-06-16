@@ -1,7 +1,19 @@
-# Template Management — Plan (v1 GREENLIT)
+# Template Management — Plan (v1 SHIPPED)
 
-Status: **building v1** per the decisions below. Companion to
-`docs/dual-mode-state.md`. Tracks task #15 ("template-management").
+Status: **v1 built (steps 1–5), reviewed, lean green, pushed.** Companion to
+`docs/dual-mode-state.md`.
+
+**v1 DONE (all on `feat/dual-mode-ide`):** template CRUD on bridge (HTTP+WS) + Java
+server + in-client host; lean New-menu tier merge (bundled < fetched < user) with
+provenance badges; Save-as-template (create-own) + Duplicate-and-edit (clone); a
+CI-generated single `templates.json` (GitHub Action regenerates on `templates/`
+changes) editor-fetched from a CORS-clean raw URL with **strip-on-import**
+(lbbuild.config.json + .vscode/ + dotfiles — normalized denylist) merged in-memory;
+and a template/source manager UI (list / delete / duplicate / manual fetch). Each
+step had an adversarial sub-agent review; the strip is proven e2e against a malicious
+fixture. **Deferred (gated on the untrusted-source warning UX):** add-custom-repo UI,
+host-fetch (+ the §3.3 SSRF guard), persisting fetched templates, no-fetched-shadows-
+bundled for untrusted sources, publish-from-master + CODEOWNERS, content allowlist.
 
 ## v1 decisions (GREENLIT — scorpion + Koda)
 
