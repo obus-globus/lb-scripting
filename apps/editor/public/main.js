@@ -173,7 +173,7 @@ function ensureModel(path) {
   let m = models.get(path);
   if (!m) {
     m = monaco.editor.createModel(proj.files[path], langFor(path), uriFor(path));
-    m.onDidChangeContent(() => { proj.files[path] = m.getValue(); scheduleSave(); if (hotReloadFn) hotReloadFn(); if (isPreviewFile(path)) { pinFile(path); renderFtabs(); } });
+    m.onDidChangeContent(() => { proj.files[path] = m.getValue(); scheduleSave(); if (hotReloadFn) hotReloadFn(); if (isPreviewFile(path)) { pinFile(path); renderFtabs(); } scheduleLintAny(); });
     models.set(path, m);
   }
   return m;
@@ -201,6 +201,7 @@ function openFile(path, opts = {}) {
   { const parts = path.split("/"); let acc = ""; for (let i = 0; i < parts.length - 1; i++) { acc = acc ? acc + "/" + parts[i] : parts[i]; collapsed.delete(acc); } }
   editor.setModel(ensureModel(path));
   renderFiles(); renderFtabs(); scheduleSave();
+  scheduleLintAny();
   const row = $("files").querySelector(".tv-row.active"); if (row) row.scrollIntoView({ block: "nearest" });
 }
 function closeTab(path) {
@@ -883,6 +884,35 @@ async function applyJvmTypes() {
 function setJvmTypes(level) { setBuildField("jvmTypes", level); applyJvmTypes(); }
 let _jvmAppliedFor = null; // re-apply Monaco extra libs only when the active project changes
 
+// "Error on any" linter — per-project (lbbuild.config.json `antiAny`). TypeScript has
+// no compiler flag for this, so it runs via a custom worker method (ts-anyworker.js,
+// wired by setWorkerOptions at init) that walks the TypeChecker for `any`-typed
+// expressions; we surface them as error markers on the active model.
+const ANY_MARKER_OWNER = "anti-any";
+function antiAnyOn() { return !!(rawBuildConfig().config || {}).antiAny; }
+function setAntiAny(on) { setBuildField("antiAny", !!on); lintAnyActive(); }
+let _antiAnyTimer = null;
+function scheduleLintAny() { clearTimeout(_antiAnyTimer); _antiAnyTimer = setTimeout(lintAnyActive, 400); }
+async function lintAnyActive() {
+  if (!window.monaco || !editor) return;
+  const model = editor.getModel();
+  if (!model) return;
+  const clear = () => monaco.editor.setModelMarkers(model, ANY_MARKER_OWNER, []);
+  const lang = model.getLanguageId();
+  if (!antiAnyOn() || libView || (lang !== "typescript" && lang !== "javascript")) { clear(); return; }
+  try {
+    const getWorker = lang === "javascript" ? monaco.languages.typescript.getJavaScriptWorker : monaco.languages.typescript.getTypeScriptWorker;
+    const w = await (await getWorker())(model.uri);
+    if (typeof w.getAnyRanges !== "function") return;       // custom worker not active
+    const ranges = await w.getAnyRanges(model.uri.toString());
+    if (editor.getModel() !== model) return;                // switched files mid-await
+    monaco.editor.setModelMarkers(model, ANY_MARKER_OWNER, ranges.map((r) => {
+      const s = model.getPositionAt(r.start), e = model.getPositionAt(r.start + r.length);
+      return { startLineNumber: s.lineNumber, startColumn: s.column, endLineNumber: e.lineNumber, endColumn: e.column, message: r.message, severity: monaco.MarkerSeverity.Error, source: "any" };
+    }));
+  } catch { /* worker not ready / transient — next change re-lints */ }
+}
+
 async function build() {
   $("build").disabled = true; setStatus("building…");
   try {
@@ -1030,6 +1060,9 @@ require(["vs/editor/editor.main"], async () => {
   ]);
   configureTS(monaco.languages.typescript.typescriptDefaults, false);
   configureTS(monaco.languages.typescript.javascriptDefaults, true);
+  // Custom TS worker adds getAnyRanges() for the "Error on any" linter (ts-anyworker.js).
+  monaco.languages.typescript.typescriptDefaults.setWorkerOptions({ customWorkerPath: BASE + "ts-anyworker.js" });
+  monaco.languages.typescript.javascriptDefaults.setWorkerOptions({ customWorkerPath: BASE + "ts-anyworker.js" });
 
   // In-game translucency: ?opacity=NN (20–100). <100 → see the game behind.
   try {
@@ -1176,6 +1209,12 @@ require(["vs/editor/editor.main"], async () => {
     jcb.onchange = () => { setJvmTypes(jcb.checked ? "lb" : "off"); log("JVM type info: " + (jcb.checked ? "LiquidBounce" : "off"), "d"); };
     jlbl.appendChild(jcb); jlbl.appendChild(document.createTextNode('Type Java.type("…") strings (LiquidBounce)'));
     el.appendChild(jlbl);
+    // Error-on-any linter (strict): flags any-typed expressions (e.g. an untyped Java.type)
+    const albl = document.createElement("label"); albl.className = "item";
+    const acb = document.createElement("input"); acb.type = "checkbox"; acb.checked = antiAnyOn();
+    acb.onchange = () => { setAntiAny(acb.checked); log("Error on any: " + (acb.checked ? "on" : "off"), "d"); };
+    albl.appendChild(acb); albl.appendChild(document.createTextNode("Error on \u201cany\u201d (strict)"));
+    el.appendChild(albl);
     const sep = document.createElement("div"); sep.className = "sep"; el.appendChild(sep);
     el.appendChild(popItem("Edit build config…", () => { ensureBuildConfigFile(); if (!showAux) setShowAux(true); openFile(BUILD_FILE); }, "lbbuild.config.json"));
     const note = document.createElement("div"); note.className = "item"; note.style.cssText = "cursor:default;font-size:11px;color:var(--fgdim)"; note.textContent = "target " + (cfg.target || "es2022") + " · " + (cfg.format || "esm"); el.appendChild(note);
@@ -1341,6 +1380,9 @@ require(["vs/editor/editor.main"], async () => {
     getBuildConfig: () => buildConfig(),
     setJvmTypes: (level) => setJvmTypes(level),
     jvmTypes: () => jvmTypesLevel(),
+    setAntiAny: (v) => setAntiAny(v),
+    antiAny: () => antiAnyOn(),
+    anyMarkers: () => monaco.editor.getModelMarkers({ owner: ANY_MARKER_OWNER }).map((m) => ({ message: m.message, line: m.startLineNumber, col: m.startColumn })),
     exportZipBytes: () => { const enc = new TextEncoder(); return Array.from(makeZip(Object.keys(proj.files).sort().map((n) => ({ name: n, data: enc.encode(proj.files[n]) })))); },
     importText: (name, content) => { const p = importOneFile(name, content); openFile(p); return p; },
     downloadBtnDisabled: () => $("download").disabled,
