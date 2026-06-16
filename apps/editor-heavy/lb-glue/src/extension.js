@@ -138,6 +138,42 @@ export function activate(context) {
     unsubLog = bridge.subscribeLog((line) => logCh.appendLine(typeof line === "string" ? line : JSON.stringify(line)));
   });
 
+  // Open: a QuickPick with two categories (mirrors the lean editor's Open menu) —
+  // Projects (the host's saved lb-ide/projects sources; selecting one reopens the
+  // workspace at lbfs://<id>/) and Installed scripts (the scripts/ folder; selecting
+  // one opens its content as an editable document). Both sourced from the bridge.
+  reg("lb.open", async () => {
+    const bridge = getBridge();
+    if (!bridge) { vscode.window.showErrorMessage("LB Open: no host configured"); return; }
+    const qp = vscode.window.createQuickPick();
+    qp.placeholder = "Open a project or installed script";
+    qp.busy = true; qp.show();
+    let projects = [], scripts = [];
+    try { projects = (await bridge.projects()) || []; } catch (e) { ch.appendLine("open: projects failed — " + (e && e.message || e)); }
+    try { scripts = (bridge.scripts ? (await bridge.scripts()) : []) || []; } catch (e) { ch.appendLine("open: scripts failed — " + (e && e.message || e)); }
+    const items = [{ label: "Projects", kind: vscode.QuickPickItemKind.Separator }];
+    for (const p of projects) items.push({ label: p.name || p.id, description: p.id, _kind: "project", _id: p.id });
+    items.push({ label: "Installed scripts", kind: vscode.QuickPickItemKind.Separator });
+    for (const name of scripts) items.push({ label: name, description: "scripts/", _kind: "script", _name: name });
+    qp.items = items; qp.busy = false;
+    qp.onDidAccept(async () => {
+      const sel = qp.selectedItems[0]; qp.hide();
+      if (!sel || !sel._kind) return;
+      if (sel._kind === "project") {
+        await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.parse("lbfs://" + sel._id + "/"), { forceReuseWindow: true });
+      } else {
+        try {
+          const res = await bridge.script(sel._name);
+          if (!res || !res.ok) { vscode.window.showErrorMessage("LB: could not read " + sel._name); return; }
+          const language = /\.(js|mjs)$/.test(sel._name) ? "javascript" : "typescript";
+          const doc = await vscode.workspace.openTextDocument({ content: res.content || "", language });
+          await vscode.window.showTextDocument(doc);
+        } catch (e) { vscode.window.showErrorMessage("LB Open failed: " + (e && e.message || e)); }
+      }
+    });
+    qp.onDidHide(() => qp.dispose());
+  });
+
   // Headless self-test only (off by default): fire buildAndRun once so a probe can observe it.
   if (vscode.workspace.getConfiguration("lb").get("selfTestOnStartup", false)) {
     setTimeout(() => vscode.commands.executeCommand("lb.buildAndRun"), 3000);
