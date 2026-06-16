@@ -92,9 +92,8 @@ function buildCategory(id, name, lang, baseDir, description) {
 }
 
 const categories = [
-  buildCategory("default-ts", "Minimal (TS)", "ts", path.join(TEMPLATES, "default-ts"), "Tiny typed script — registerScript + one event handler."),
+  buildCategory("default-ts", "TypeScript", "ts", path.join(TEMPLATES, "default-ts"), "Typed script: registerScript + events, multi-file, explicit JVM imports."),
   buildCategory("plain-js", "Plain JS", "js", path.join(TEMPLATES, "plain-js"), "No build step — // @ts-check'd JavaScript."),
-  buildCategory("starter-ts", "Starter (TS)", "ts", path.join(TEMPLATES, "starter-ts"), "JumpLogger starter with a boolean setting."),
   buildCategory("inject-ts", "Inject (TS)", "ts", path.join(TEMPLATES, "inject-ts"), "Runtime bytecode injection via lb-inject."),
   buildCategory("lb-ide-host", "LB Script IDE (host)", "ts", HOST, "The very script that opens this IDE in-game — multi-file, with an in-process HTTP server + CEF."),
 ];

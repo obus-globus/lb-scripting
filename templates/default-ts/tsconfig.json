@@ -16,7 +16,14 @@
     "resolveJsonModule": true,
     "inlineSourceMap": true,
     "inlineSources": true,
-    "types": ["@wunk/lb-script-api-types/ambient"],
+    "types": [
+      "@wunk/lb-script-api-types/ambient"
+      // Toggle: to type `Java.type("net.ccbluex...")` straight from the string
+      // (LiquidBounce classes), uncomment the next line. Otherwise use explicit
+      // imports (see src/examples/explicit-imports.ts). Use registry-full instead
+      // to also cover net.minecraft.* classes.
+      // , "@wunk/lb-script-api-types/registry-lb"
+    ],
     "noEmit": true
   },
   "include": ["src/**/*", "types/**/*"],

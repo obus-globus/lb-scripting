@@ -302,4 +302,38 @@ line: `^0.38.0` resolves to the newest types for LB 0.38.x, and the dist-tag
 `@wunk/lb-script-api-types@lb-0.38` points at the same. Bump it when you move to
 a newer LB build.
 
+### Two ways to type a `Java.type(...)` handle (tsconfig toggle)
+
+A `Java.type("fully.qualified.Class")` call returns a raw handle. There are two
+ways to make it typed; pick per project in `tsconfig.json`:
+
+- **Explicit import (default).** Write
+  `import { Mth } from "@wunk/lb-script-api-types/types/net/minecraft/util/Mth"`;
+  the build rewrites it to `Java.type("net.minecraft.util.Mth")`. Works with just
+  the `ambient` types. See `src/examples/explicit-imports.ts`.
+- **String-literal registry (toggle on).** Uncomment
+  `"@wunk/lb-script-api-types/registry-lb"` in the `tsconfig.json` `types` array,
+  and `Java.type("net.ccbluex...")` is typed straight from the string, no import.
+  `registry-lb` covers LiquidBounce classes; use `registry-full` to also cover
+  `net.minecraft.*`. (Cost: each entry's module joins the program only when that
+  string is used.)
+
+### Class bindings: statics live behind `.static`
+
+The ambient class-value globals (`Hand`, `Mth`, `BlockPos`, `Vec3i`,
+`RotationAxis`, ...) are raw `java.lang.Class` values at runtime. They construct
+directly (`new Vec3i(1, 2, 3)`), but their **statics, including enum constants,
+are only reachable via `.static`**:
+
+```ts
+InteractionUtil.useItem(Hand.static.MAIN_HAND);   // ok
+Mth.static.clamp(x, 0, 20);                        // ok
+Hand.MAIN_HAND;                                    // compiles on old types, undefined at runtime
+```
+
+This is the verified live behaviour (GraalJS nashorn-compat), and types
+`>= 0.38.3` model it. A `Java.type(...)` handle (or a build-rewritten explicit
+import) is a host symbol instead and exposes statics directly:
+`Java.type("net.minecraft.util.Mth").clamp(...)`.
+
 The types are derived from LiquidBounce and are licensed GPL-3.0-or-later.

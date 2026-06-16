@@ -31,7 +31,7 @@ await boot();
 
 console.log("\n[1] categories: base (no examples) + per-example projects");
 const cats = await page.evaluate(() => window.__ide.categories());
-ok(["default-ts", "plain-js", "starter-ts", "inject-ts"].every((id) => cats.some((c) => c.id === id)), "4 categories: " + cats.map((c) => c.id).join(","));
+ok(["default-ts", "plain-js", "inject-ts"].every((id) => cats.some((c) => c.id === id)), "3 categories: " + cats.map((c) => c.id).join(","));
 const def = cats.find((c) => c.id === "default-ts");
 ok(def.baseFiles.length === 1 && def.baseFiles[0] === "main.ts", "base project is just main.ts (no examples bundled): " + JSON.stringify(def.baseFiles));
 ok(def.examples.length >= 2, "default category exposes example projects: " + def.examples.length);

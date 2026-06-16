@@ -55,7 +55,7 @@ per-component READMEs for the open items.
 The "+ new" picker merges three tiers, keyed by id (later tiers shadow earlier):
 
 1. **Bundled**: the starter projects in [`templates/`](templates/) (`default-ts`,
-   `plain-js`, `starter-ts`, `inject-ts`), plus `lb-ide-host` itself. Read by
+   `plain-js`, `inject-ts`), plus `lb-ide-host` itself. Read by
    `apps/editor/scripts/gen-templates.mjs` at build time. Always present, offline.
 2. **User**: saved via "Save as template" / "Duplicate & edit". Stored on the host
    (needs a bridge).

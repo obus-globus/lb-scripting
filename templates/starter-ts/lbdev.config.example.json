@@ -1,6 +1,0 @@
-{
-  "//": "Copy to lbdev.config.json (gitignored — it holds your local path) for `npm run dev`. Env vars LB_SCRIPTS_DIR / LB_ENTRY / LB_DEBUG override these.",
-  "scriptsDir": "/home/you/.minecraft/LiquidBounce/scripts",
-  "entry": "main.mjs",
-  "debug": "inspect:9229"
-}
