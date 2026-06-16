@@ -42,12 +42,19 @@ async function readWorkspaceFiles(root) {
 }
 
 // The shared ScriptManager bridge (base/token from lb.hostBase/hostToken; lb-fs
-// injects the resolved absolute base). null when no host is configured.
+// injects the resolved absolute base). Memoized by {base,token} so commands +
+// hot-reload reuse ONE connection (a WS bridge opens a socket; a fresh bridge per
+// call would leak sockets). null when no host is configured.
+let _bridge = null, _bridgeKey = "";
 function getBridge() {
   const cfg = vscode.workspace.getConfiguration("lb");
-  const base = cfg.get("hostBase", "");
-  return base ? createBridge({ base, token: cfg.get("hostToken", "") }) : null;
+  const base = cfg.get("hostBase", ""), token = cfg.get("hostToken", "");
+  if (!base) return null;
+  const key = base + "\u0000" + token;
+  if (key !== _bridgeKey) { try { _bridge && _bridge.close && _bridge.close(); } catch { /* */ } _bridge = createBridge({ base, token }); _bridgeKey = key; }
+  return _bridge;
 }
+let hotTimer = null;
 
 // Build the workspace to a single .mjs via @lb-ide/core (shared by run/hot-reload/debug).
 async function buildWorkspace(context, ch) {
@@ -97,13 +104,13 @@ export function activate(context) {
   reg("lb.buildAndDebug", () => buildAndLoad(context, ch, { debug: true }));
 
   // Hot-reload: rebuild + reload on save when on (debounced), like the lean editor.
-  let hotReload = false, hotTimer = null;
+  let hotReload = false;
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
   status.command = "lb.toggleHotReload";
   const renderStatus = () => { status.text = "$(sync) LB hot-reload: " + (hotReload ? "on" : "off"); status.show(); };
   renderStatus();
   context.subscriptions.push(status);
-  reg("lb.toggleHotReload", () => { hotReload = !hotReload; renderStatus(); vscode.window.showInformationMessage("LB hot-reload " + (hotReload ? "on" : "off")); });
+  reg("lb.toggleHotReload", () => { hotReload = !hotReload; if (!hotReload) clearTimeout(hotTimer); renderStatus(); vscode.window.showInformationMessage("LB hot-reload " + (hotReload ? "on" : "off")); });
   context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(() => {
     if (!hotReload || !getBridge()) return;
     clearTimeout(hotTimer);
@@ -122,13 +129,13 @@ export function activate(context) {
 
   // Live log stream: subscribe to the client's log(...) output.
   let unsubLog = null;
+  context.subscriptions.push({ dispose: () => { if (unsubLog) unsubLog(); } });
   reg("lb.toggleLogStream", () => {
     if (unsubLog) { unsubLog(); unsubLog = null; logCh.appendLine("[log stream stopped]"); return; }
     const bridge = getBridge();
     if (!bridge || !bridge.subscribeLog) { vscode.window.showErrorMessage("LB logs: no host configured"); return; }
     logCh.show(true);
     unsubLog = bridge.subscribeLog((line) => logCh.appendLine(typeof line === "string" ? line : JSON.stringify(line)));
-    context.subscriptions.push({ dispose: () => unsubLog && unsubLog() });
   });
 
   // Headless self-test only (off by default): fire buildAndRun once so a probe can observe it.
@@ -137,4 +144,7 @@ export function activate(context) {
   }
 }
 
-export function deactivate() {}
+export function deactivate() {
+  clearTimeout(hotTimer);
+  try { _bridge && _bridge.close && _bridge.close(); } catch { /* */ }
+}
