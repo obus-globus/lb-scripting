@@ -51,7 +51,9 @@ public final class LbHeavyServer {
     private final String projectId;
     private final Ops ops;
     private final LogBus logBus = new LogBus();
-    private final ExecutorService pool = Executors.newCachedThreadPool();
+    private static final int MAX_FRAME = 16 * 1024 * 1024;   // reject oversized WS frames (OOM guard)
+    private static final int HEADER_TIMEOUT_MS = 15000;       // slow-loris guard on the HTTP head read
+    private final ExecutorService pool = Executors.newFixedThreadPool(64); // bounded (single-user local server)
 
     public LbHeavyServer(int port, Path webRoot, Map<String, Path> mounts, String token,
                          Set<String> allowedOrigins, String bridgeBase, String projectId, Ops ops) {
@@ -70,6 +72,7 @@ public final class LbHeavyServer {
 
     // ---- request dispatch -----------------------------------------------------
     private void handle(Socket sock) throws IOException {
+        sock.setSoTimeout(HEADER_TIMEOUT_MS); // bound the head read (slow-loris); cleared for WS below
         InputStream in = sock.getInputStream();
         OutputStream out = sock.getOutputStream();
         Map<String, String> head = readHead(in);
@@ -154,6 +157,7 @@ public final class LbHeavyServer {
         out.write(("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: "
                 + accept + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
         out.flush();
+        sock.setSoTimeout(0); // WS is long-lived; no per-read timeout (Origin+token already gate it)
         System.out.println("[ws] connect origin=" + origin);
 
         final boolean[] authed = {false};
@@ -229,6 +233,7 @@ public final class LbHeavyServer {
         long len = b1 & 0x7F;
         if (len == 126) { len = ((long) in.read() << 8) | in.read(); }
         else if (len == 127) { len = 0; for (int i = 0; i < 8; i++) len = (len << 8) | in.read(); }
+        if (len < 0 || len > MAX_FRAME) throw new IOException("ws frame too large: " + len); // OOM guard
         byte[] mask = new byte[4];
         if (masked) { if (readFull(in, mask, 4) < 0) return null; }
         byte[] payload = new byte[(int) len];
@@ -274,9 +279,13 @@ public final class LbHeavyServer {
     }
     private static String mime(String f) { int d = f.lastIndexOf('.'); return d < 0 ? "application/octet-stream" : MIME.getOrDefault(f.substring(d + 1).toLowerCase(), "application/octet-stream"); }
 
+    // COI headers only. Deliberately NO Access-Control-Allow-Origin: the HTTP /api +
+    // /lb/config are used ONLY same-origin (the hosted cross-origin case uses WS,
+    // Origin-checked at the handshake). Serving the bridge token under ACAO:* would
+    // let any website read /lb/config cross-origin, steal the token, and call /api/load
+    // (code execution in the client). Same-origin reads don't need ACAO.
     private static String coiHeaderBlock() {
-        return "Cross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\nCross-Origin-Resource-Policy: cross-origin\r\n"
-                + "Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: X-IDE-Token, content-type\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\n";
+        return "Cross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\nCross-Origin-Resource-Policy: cross-origin\r\n";
     }
     private void writeHttp(OutputStream out, int code, String ctype, byte[] body, boolean coi) throws IOException {
         StringBuilder h = new StringBuilder();
