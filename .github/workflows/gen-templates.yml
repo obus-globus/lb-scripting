@@ -1,0 +1,44 @@
+name: publish templates.json
+
+# Regenerate the repo-root templates.json (the single artifact the editor fetches at
+# runtime) whenever the template sources or the generator change. Decouples template
+# updates from editor redeploys: edit templates/ → this commits a fresh templates.json
+# → the deployed editor picks it up on its next fetch.
+
+on:
+  push:
+    # feat/dual-mode-ide is included only for in-development testing (the editor's
+    # TEMPLATE_SOURCE points at this branch). POST-MERGE: drop the feature branch so
+    # publishing happens only from master, and gate templates/ changes behind PR
+    # review / CODEOWNERS (the live-fetched URL must not be writable without review).
+    branches: [master, feat/dual-mode-ide]
+    paths:
+      - "templates/**"
+      - "apps/host/**"
+      - "apps/editor/scripts/gen-templates.mjs"
+      - "apps/editor/scripts/publish-templates.mjs"
+      - ".github/workflows/gen-templates.yml"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # commit the regenerated templates.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Regenerate + publish templates.json
+        run: node apps/editor/scripts/publish-templates.mjs
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- templates.json; then
+            echo "templates.json unchanged"
+          else
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add templates.json
+            git commit -m "chore(templates): regenerate published templates.json [skip ci]"
+            git push
+          fi

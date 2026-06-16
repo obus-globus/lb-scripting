@@ -19,7 +19,11 @@ require.config({ paths: { vs: BASE + "vs" } });
 // SSE stream, since EventSource can't set headers). The custom header forces a
 // CORS preflight that fails cross-origin, so other web pages can't drive the host.
 const API_TOKEN = new URLSearchParams(location.search).get("token") || "";
-function apiFetch(p, opts = {}) { opts.headers = { ...(opts.headers || {}), "X-IDE-Token": API_TOKEN }; return fetch(BASE + p, opts); }
+// The host-API bridge client lives in @lb-ide/core (shared with the heavy editor);
+// it's created at init. apiFetch routes through it once ready, with an identical
+// inline fallback for any call before the (dynamically-imported) bridge loads.
+let bridge = null;
+function apiFetch(p, opts = {}) { return bridge ? bridge.call(p, opts) : fetch(BASE + p, { ...opts, headers: { ...(opts.headers || {}), "X-IDE-Token": API_TOKEN } }); }
 
 // ---------------------------------------------------------------- persistence
 const DB = "lb-ide", P_STORE = "projects", M_STORE = "meta";
@@ -35,8 +39,20 @@ async function dbPut(store, key, val) { const db = await idb(); return new Promi
 async function dbDel(store, key) { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction(store, "readwrite").objectStore(store).delete(key); t.onsuccess = () => res(); t.onerror = () => rej(t.error); }); }
 
 // ---------------------------------------------------------------- state
-let CATEGORIES = [];
+let CATEGORIES = [];                      // bundled templates (templates.json)
+let userTemplates = [];                   // user template docs from the bridge (lb-ide/templates/)
+let fetchedTemplates = [];                // templates fetched from the default source (in-memory, stripped)
 let INJECT_DTS = "";
+// Default template source: a CI-generated templates.json published in the repo,
+// fetched at runtime (CORS-clean raw URL — no token, no host). v1 ships ONLY this
+// single trusted source (no add-custom-repo UI); fetched files are STRIPPED on import.
+const TEMPLATE_SOURCE = {
+  id: "lb-scripting",
+  name: "lb-scripting",
+  // refs/heads/<branch> form handles the slash in the feature branch name; switch to main after merge.
+  // Published at repo root by the gen-templates Action (outside templates/ → no trigger loop).
+  url: "https://raw.githubusercontent.com/obus-globus/lb-scripting/refs/heads/feat/dual-mode-ide/templates.json",
+};
 let injectBundle = null; // lazily fetched lb-inject runtime
 let baseExtraLibs = [];
 
@@ -400,7 +416,46 @@ async function loadProject(id) {
   renderTabs();
   return true;
 }
-function categoryById(cid) { return CATEGORIES.find((c) => c.id === cid) || CATEGORIES[0]; }
+// Merge bundled (tier1) + user/fetched (tier2/3) templates for the New menu, keyed by
+// id — a user/fetched template SHADOWS a bundled one with the same id. Each entry
+// carries `_origin` ("bundled" | "user" | "fetched") + `_sourceId` for the badge.
+function mergedCategories() {
+  const out = CATEGORIES.map((c) => ({ ...c, _origin: "bundled" }));
+  const byId = new Map(out.map((c, i) => [c.id, i]));
+  // precedence: bundled < fetched < user (a user's own template wins over a fetched one)
+  for (const t of [...fetchedTemplates, ...userTemplates]) {
+    if (!t || !t.id || !t.base || !t.base.files) continue;        // skip malformed docs
+    // aux is an OBJECT (path→content), like bundled templates.json — createProject
+    // spreads it into files. (A project's proj.aux is an array of paths; a template's
+    // aux is the content map — don't conflate them.)
+    const entry = { ...t, examples: t.examples || [], aux: (t.aux && typeof t.aux === "object" && !Array.isArray(t.aux)) ? t.aux : {}, _origin: t.origin || "user", _sourceId: t.sourceId };
+    if (byId.has(t.id)) out[byId.get(t.id)] = entry;              // shadow bundled
+    else { byId.set(t.id, out.length); out.push(entry); }
+  }
+  return out;
+}
+function categoryById(cid) { const m = mergedCategories(); return m.find((c) => c.id === cid) || m[0]; }
+// Pull the user's own templates from the bridge into the New menu (no-op when offline).
+async function refreshTemplates() {
+  if (!bridge || !bridgeOn) { userTemplates = []; return; }
+  try { userTemplates = ((await bridge.templates()) || []).filter((t) => (t.origin || "user") !== "fetched"); } catch { userTemplates = []; }
+}
+
+// Fetch the default template source (a published templates.json), STRIP untrusted
+// files, merge in-memory (origin=fetched). Bare fetch — no token, credentials omitted
+// (the source URL is not the host; never leak the session token to it). Non-blocking:
+// a failure leaves the bundled set intact. Re-runnable (manual refresh in the manager).
+async function fetchTemplateSource() {
+  if (!TEMPLATE_SOURCE || !TEMPLATE_SOURCE.url) return { ok: false };
+  try {
+    const res = await fetch(TEMPLATE_SOURCE.url, { credentials: "omit" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const doc = await res.json();
+    const { parseTemplateSource } = await import("./lb-ide-core/templates.js");
+    fetchedTemplates = parseTemplateSource(doc, { sourceId: TEMPLATE_SOURCE.id });
+    return { ok: true, count: fetchedTemplates.length };
+  } catch (e) { return { ok: false, error: (e && e.message) || String(e) }; }
+}
 async function createProject(catId, exampleId, opts = {}) {
   const cat = categoryById(catId);
   const ex = exampleId ? cat.examples.find((e) => e.id === exampleId) : null;
@@ -443,6 +498,8 @@ function renderTabs() {
   }
   const plus = document.createElement("button"); plus.id = "newProj"; plus.textContent = "+ new"; plus.onclick = showTemplateMenu;
   wrap.appendChild(plus);
+  const open = document.createElement("button"); open.id = "openProj"; open.textContent = "open ▾"; open.title = "open a project or installed script"; open.onclick = showOpenMenu;
+  wrap.appendChild(open);
   syncDownloadBtn(); // the build/download is per-project — reflect the current one
   // tab names for non-current projects are their ids until loaded; fetch names
   hydrateTabNames();
@@ -467,7 +524,12 @@ function showTemplateMenu() {
     sub.innerHTML = "";
     const add = (title, desc, onClick) => {
       const it = document.createElement("div"); it.className = "item";
-      it.innerHTML = "<div><b>" + title + "</b>" + (desc ? "<span>" + desc + "</span>" : "") + "</div>";
+      // textContent (not innerHTML): user/fetched template names/descriptions are
+      // untrusted strings — must not be injected as HTML.
+      const wrap = document.createElement("div");
+      const b = document.createElement("b"); b.textContent = title; wrap.appendChild(b);
+      if (desc) { const s = document.createElement("span"); s.textContent = desc; wrap.appendChild(s); }
+      it.appendChild(wrap);
       it.onclick = () => { hideTemplateMenu(); onClick(); };
       sub.appendChild(it);
     };
@@ -480,48 +542,173 @@ function showTemplateMenu() {
     sub.style.left = Math.max(6, left) + "px";
     sub.style.top = Math.min(rr.top, window.innerHeight - sub.offsetHeight - 6) + "px";
   };
-  for (const cat of CATEGORIES) {
+  for (const cat of mergedCategories()) {
     const row = document.createElement("div"); row.className = "row";
-    row.innerHTML = "<span>" + cat.name + "</span><span class='arrow'>▸</span>";
+    const label = document.createElement("span"); label.textContent = cat.name;
+    row.appendChild(label);
+    // provenance badge for non-bundled templates (user / fetched source)
+    if (cat._origin && cat._origin !== "bundled") {
+      const badge = document.createElement("span"); badge.className = "badge";
+      badge.textContent = cat._origin === "fetched" ? (cat._sourceId || "fetched") : "custom";
+      badge.title = cat._origin === "fetched" ? ("from source: " + (cat._sourceId || "?") + " — review before running") : "your saved template";
+      row.appendChild(badge);
+    }
+    const arrow = document.createElement("span"); arrow.className = "arrow"; arrow.textContent = "▸"; row.appendChild(arrow);
     row.onmouseenter = () => openSub(cat, row);
     row.onclick = () => openSub(cat, row);
     menu.appendChild(row);
   }
-  if (bridgeOn) {
+  // Footer actions: save-as-template (create-own, needs a bridge) + manage templates
+  // (list/delete/duplicate + manual fetch; works offline for fetched templates).
+  const footer = (text, onClick) => {
     const sep = document.createElement("div"); sep.className = "sep"; menu.appendChild(sep);
     const row = document.createElement("div"); row.className = "row";
-    row.innerHTML = "<span>Open installed script…</span>";
+    const label = document.createElement("span"); label.textContent = text; row.appendChild(label);
     row.onmouseenter = () => { sub.style.display = "none"; [...menu.querySelectorAll(".row")].forEach((r) => r.classList.remove("active")); };
-    row.onclick = () => { hideTemplateMenu(); openInstalledScriptPicker(); };
+    row.onclick = () => { hideTemplateMenu(); onClick(); };
     menu.appendChild(row);
-  }
+  };
+  if (bridgeOn) footer("Save current as template…", saveCurrentAsTemplate);
+  footer("Manage templates…", openTemplateManager);
   const r = $("newProj").getBoundingClientRect();
   menu.style.left = Math.max(6, r.left) + "px"; menu.style.top = r.bottom + 4 + "px"; menu.style.display = "block";
 }
 
-// Bridge: list installed scripts, open the chosen one as a single-file project.
-async function openInstalledScriptPicker() {
-  let names = [];
-  try { names = await apiFetch("api/scripts").then((r) => r.json()); } catch { /* */ }
-  if (!names || !names.length) { log("no installed scripts found", "d"); return; }
-  const menu = $("tmplMenu"); menu.innerHTML = "";
-  for (const name of names) {
-    const item = document.createElement("div"); item.className = "item";
-    const b = document.createElement("b"); b.textContent = name; // textContent: no HTML injection from filenames
-    const s = document.createElement("span"); s.textContent = "open from LiquidBounce scripts/";
-    item.append(b, s);
-    item.onclick = async () => {
-      menu.style.display = "none";
-      try {
-        const res = await apiFetch("api/script?name=" + encodeURIComponent(name)).then((r) => r.json());
-        if (!res.ok) { log("could not read " + name, "e"); return; }
-        await openAsProject(name, res.content);
-      } catch (e) { log("open failed: " + (e && e.message || e), "e"); }
-    };
-    menu.appendChild(item);
-  }
-  const r = $("newProj").getBoundingClientRect();
+// Save-as-template (create-own): build a template doc from the current project's
+// files and persist it to the bridge (lb-ide/templates/). Clone-and-modify is the
+// inverse + already covered: creating a project from any template in the New menu
+// clones its files into an editable project.
+async function saveCurrentAsTemplate() {
+  if (!proj) return;
+  if (!bridge || !bridgeOn) { log("save as template needs a connected client", "e"); return; }
+  const name = (prompt("Template name:", proj.name) || "").trim();
+  if (!name) return;
+  const id = name.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || ("tpl-" + Date.now().toString(36));
+  const lang = Object.keys(proj.files).some((f) => f.endsWith(".ts")) ? "ts" : "js";
+  // Split into source files (base.files) and aux files (aux as a path→content OBJECT,
+  // matching the bundled template shape so createProject reconstructs the project).
+  const auxPaths = new Set(proj.aux || []);
+  const baseFiles = {}, auxObj = {};
+  for (const [p, c] of Object.entries(proj.files)) (auxPaths.has(p) ? auxObj : baseFiles)[p] = c;
+  const doc = { id, name, description: "saved from project", lang, base: { files: baseFiles }, examples: [], aux: auxObj, origin: "user", createdAt: Date.now(), updatedAt: Date.now() };
+  try {
+    const res = await bridge.saveTemplate(doc);
+    if (res && res.ok) { await refreshTemplates(); log("✓ saved template '" + name + "' (id " + (res.id || id) + ")", "s"); }
+    else log("✗ save template failed", "e");
+  } catch (e) { log("✗ save template failed: " + (e && e.message || e), "e"); }
+}
+
+// Template/source manager: a popup listing the default source (with a manual
+// "fetch latest"), the user's own templates (duplicate & edit / delete), and the
+// fetched templates (duplicate & edit). Anchored to the New button.
+async function openTemplateManager() {
+  await refreshTemplates(); // reflect any out-of-band bridge changes (don't render a stale snapshot)
+  showPop($("newProj"), (el) => {
+    const head = (txt) => { const d = document.createElement("div"); d.className = "item"; d.style.cssText = "cursor:default;font-size:11px;color:var(--fgdim);text-transform:uppercase;letter-spacing:.04em"; d.textContent = txt; el.appendChild(d); };
+    const sep = () => { const s = document.createElement("div"); s.className = "sep"; el.appendChild(s); };
+    // default source + manual refresh
+    head("Source");
+    el.appendChild(popItem("Fetch latest from " + TEMPLATE_SOURCE.name, async () => {
+      const r = await fetchTemplateSource();
+      log(r.ok ? ("fetched " + r.count + " template(s) from " + TEMPLATE_SOURCE.name) : ("template fetch failed: " + (r.error || "?")), r.ok ? "s" : "e");
+    }, TEMPLATE_SOURCE.id));
+    // your templates (duplicate + delete)
+    sep(); head("Your templates");
+    if (!userTemplates.length) { const d = document.createElement("div"); d.className = "item"; d.style.cssText = "cursor:default;color:var(--fgdim)"; d.textContent = bridgeOn ? "(none — use “Save current as template”)" : "(connect a client to save templates)"; el.appendChild(d); }
+    for (const t of userTemplates) {
+      const row = popItem(t.name, () => createProject(t.id), "duplicate & edit");
+      const del = document.createElement("span"); del.textContent = "✕"; del.title = "delete template"; del.style.cssText = "margin-left:auto;padding-left:10px;color:var(--fgdim)";
+      del.onclick = (e) => { e.stopPropagation(); deleteUserTemplate(t.id, t.name); };
+      row.appendChild(del);
+      el.appendChild(row);
+    }
+    // fetched templates (duplicate only — managed by re-fetch)
+    if (fetchedTemplates.length) {
+      sep(); head("From " + TEMPLATE_SOURCE.name);
+      for (const t of fetchedTemplates) el.appendChild(popItem(t.name, () => createProject(t.id), "duplicate & edit"));
+    }
+  });
+}
+async function deleteUserTemplate(id, name) {
+  if (!bridge || !bridgeOn) return;
+  if (!confirm("Delete template “" + (name || id) + "”?")) return;
+  try { await bridge.deleteTemplate(id); await refreshTemplates(); log("deleted template " + id, "d"); openTemplateManager(); }
+  catch (e) { log("delete template failed: " + (e && e.message || e), "e"); }
+}
+
+// "Open" menu: a cascading picker (mirrors showTemplateMenu) with two categories —
+// Projects (your editable IDE projects, the local/bridge-synced sources) and
+// Installed scripts (the LiquidBounce scripts/ folder, via the bridge). Anchored to
+// the "open" button; lives in the SAME tmplMenu/tmplSub DOM.
+let openMenuGen = 0; // submenu generation: a later hover invalidates an in-flight async fill
+function showOpenMenu() {
+  const menu = $("tmplMenu"), sub = $("tmplSub"); menu.innerHTML = ""; sub.style.display = "none";
+  const positionSub = (rowEl) => {
+    const mr = menu.getBoundingClientRect(), rr = rowEl.getBoundingClientRect();
+    sub.style.display = "block";
+    const w = sub.offsetWidth || 230;
+    let left = mr.right + 2; if (left + w > window.innerWidth - 6) left = mr.left - w - 2;
+    sub.style.left = Math.max(6, left) + "px";
+    sub.style.top = Math.min(rr.top, window.innerHeight - sub.offsetHeight - 6) + "px";
+  };
+  const activate = (rowEl) => { [...menu.querySelectorAll(".row")].forEach((r) => r.classList.remove("active")); rowEl.classList.add("active"); };
+  const subItem = (title, desc, onClick) => {
+    const it = document.createElement("div"); it.className = "item";
+    const b = document.createElement("b"); b.textContent = title;            // textContent: no HTML injection from names
+    it.appendChild(b);
+    if (desc) { const s = document.createElement("span"); s.textContent = desc; it.appendChild(s); }
+    it.onclick = () => { hideTemplateMenu(); onClick(); };
+    return it;
+  };
+  // Projects category: switch to any open project other than the current one.
+  const openProjects = async (rowEl) => {
+    const gen = ++openMenuGen;
+    activate(rowEl); sub.innerHTML = ""; sub.appendChild(subItem("loading…", "", () => {}));
+    positionSub(rowEl);
+    const others = meta.ids.filter((id) => id !== meta.current);
+    const names = await Promise.all(others.map((id) => dbGet(P_STORE, id).then((p) => (p && p.name) || id).catch(() => id)));
+    if (gen !== openMenuGen) return; // a newer hover took over
+    sub.innerHTML = "";
+    if (!others.length) sub.appendChild(subItem("(no other projects)", "", () => {}));
+    else others.forEach((id, i) => sub.appendChild(subItem(names[i], "switch project", () => loadProject(id))));
+    positionSub(rowEl);
+  };
+  // Installed scripts category: list the scripts/ folder via the bridge, open one
+  // as an editable single-file project (unchanged behavior).
+  const openInstalled = async (rowEl) => {
+    const gen = ++openMenuGen;
+    activate(rowEl); sub.innerHTML = ""; sub.appendChild(subItem("loading…", "", () => {}));
+    positionSub(rowEl);
+    let names = [];
+    try { names = (bridge ? await bridge.scripts() : await apiFetch("api/scripts").then((r) => r.json())) || []; } catch { /* */ }
+    if (gen !== openMenuGen) return; // a newer hover took over
+    sub.innerHTML = "";
+    if (!names.length) sub.appendChild(subItem("(no installed scripts)", "", () => {}));
+    else for (const name of names) {
+      sub.appendChild(subItem(name, "open from LiquidBounce scripts/", () => openInstalledScript(name)));
+    }
+    positionSub(rowEl);
+  };
+  const addRow = (label, onOpen) => {
+    const row = document.createElement("div"); row.className = "row";
+    row.innerHTML = "<span>" + label + "</span><span class='arrow'>▸</span>";
+    row.onmouseenter = () => onOpen(row);
+    row.onclick = () => onOpen(row);
+    menu.appendChild(row);
+  };
+  addRow("Projects", openProjects);
+  if (bridgeOn) addRow("Installed scripts", openInstalled);
+  const r = $("openProj").getBoundingClientRect();
   menu.style.left = Math.max(6, r.left) + "px"; menu.style.top = r.bottom + 4 + "px"; menu.style.display = "block";
+}
+
+// Bridge: read one installed script, open it as an editable single-file project.
+async function openInstalledScript(name) {
+  try {
+    const res = bridge ? await bridge.script(name) : await apiFetch("api/script?name=" + encodeURIComponent(name)).then((r) => r.json());
+    if (!res || !res.ok) { log("could not read " + name, "e"); return; }
+    await openInstalledScriptProject(name, res.content);
+  } catch (e) { log("open failed: " + (e && e.message || e), "e"); }
 }
 
 // Create a single-file project from raw content (used for installed scripts).
@@ -534,8 +721,7 @@ async function openInstalledScriptProject(filename, content) {
   disposeModels(); ensureModel(entry);
   location.hash = proj.id; openFile(entry); renderTabs();
 }
-const openAsProject = openInstalledScriptProject;
-document.addEventListener("click", (e) => { const m = $("tmplMenu"), s = $("tmplSub"); if (m.style.display === "block" && !m.contains(e.target) && !s.contains(e.target) && e.target.id !== "newProj") hideTemplateMenu(); });
+document.addEventListener("click", (e) => { const m = $("tmplMenu"), s = $("tmplSub"); if (m.style.display === "block" && !m.contains(e.target) && !s.contains(e.target) && e.target.id !== "newProj" && e.target.id !== "openProj") hideTemplateMenu(); });
 
 // ---------------------------------------------------------------- share links
 // Encode the current project into the URL hash (#share=<gzip+base64url>) so a
@@ -618,49 +804,25 @@ let esbuildReady = null;
 function initEsbuild() { if (!esbuildReady) esbuildReady = esbuild.initialize({ wasmURL: "esbuild.wasm" }); return esbuildReady; }
 async function ensureInjectBundle() { if (injectBundle == null) injectBundle = await fetch("lb-inject-bundled.js").then((r) => r.text()); return injectBundle; }
 
-function buildPlugins(files, cfg = {}) {
-  const dir = (p) => { const i = p.lastIndexOf("/"); return i < 0 ? "" : p.slice(0, i); };
-  const join = (base, rel) => { const parts = (base + "/" + rel).split("/"); const out = []; for (const s of parts) { if (s === "" || s === ".") continue; if (s === "..") out.pop(); else out.push(s); } return out.join("/"); };
-  const norm = (p) => p.replace(/^\/+/, "");
-  const TYPES = "@wunk/lb-script-api-types/types/";
-  const jvmRewrite = cfg.javaTypeRewrite !== false;
-  const inlineInject = cfg.inlineLbInject !== false;
-  return {
-    name: "lb",
-    setup(build) {
-      // JVM-type value import → Java.type("<fqcn>")  (matches the template build).
-      // When disabled in the config, leave the import external (raw).
-      if (jvmRewrite) {
-        build.onResolve({ filter: /^@wunk\/lb-script-api-types\/types\// }, (a) => ({ path: a.path, namespace: "jvm" }));
-        build.onLoad({ filter: /.*/, namespace: "jvm" }, (a) => {
-          const fqcn = a.path.slice(TYPES.length).replace(/\//g, "."); const name = fqcn.slice(fqcn.lastIndexOf(".") + 1);
-          return { contents: `export const ${name} = Java.type(${JSON.stringify(fqcn)});`, loader: "js" };
-        });
-      } else build.onResolve({ filter: /^@wunk\/lb-script-api-types\/types\// }, (a) => ({ path: a.path, external: true }));
-      // any other @wunk/* import is types-only → empty
-      build.onResolve({ filter: /^@wunk\// }, (a) => ({ path: a.path, namespace: "empty" }));
-      // lb-inject → inlined runtime + re-export of the global it defines (or external)
-      if (inlineInject) {
-        build.onResolve({ filter: /^lb-inject$/ }, () => ({ path: "lb-inject", namespace: "lbinject" }));
-        build.onLoad({ filter: /.*/, namespace: "lbinject" }, () => ({ contents: "globalThis.__nfLibConsumed = true;\n" + (injectBundle || "") + "\nexport const Inject = globalThis.Inject;", loader: "js" }));
-      } else build.onResolve({ filter: /^lb-inject$/ }, (a) => ({ path: a.path, external: true }));
-      build.onLoad({ filter: /.*/, namespace: "empty" }, () => ({ contents: "", loader: "js" }));
-      // project files
-      build.onResolve({ filter: /.*/ }, (a) => {
-        if (a.kind === "entry-point") return { path: norm(a.path), namespace: "vfs" };
-        let p = a.path; if (p.startsWith("./") || p.startsWith("../")) p = join(dir(a.importer), p); p = norm(p);
-        const cands = [p, p + ".ts", p + ".js", p + "/index.ts", p + "/index.js"]; const hit = cands.find((c) => c in files);
-        return { path: hit || p, namespace: "vfs" };
-      });
-      build.onLoad({ filter: /.*/, namespace: "vfs" }, (a) => { const c = files[a.path]; if (c == null) return { errors: [{ text: "not in project: " + a.path }] }; return { contents: c, loader: a.path.endsWith(".js") ? "js" : "ts" }; });
-    },
-  };
+// The build pipeline (esbuild-wasm orchestration + the Java.type-rewrite plugin)
+// lives in the shared @lb-ide/core package — single-sourced with the heavy editor.
+// The lean app is buildless, so we load the ESM lazily via dynamic import()
+// (symlinked into public/lb-ide-core by scripts/link-public.mjs).
+let _coreBuild = null;
+async function coreBuild() {
+  if (!_coreBuild) _coreBuild = await import("./lb-ide-core/build.js");
+  return _coreBuild;
 }
 const entryPoint = () => ("main.ts" in proj.files ? "main.ts" : "main.js" in proj.files ? "main.js" : Object.keys(proj.files)[0]);
 
 // ---- per-project build config (an editable lbbuild.config.json, like a normal
 // TS project's tsconfig). Absent → these defaults; present → merged over them. --
 const BUILD_FILE = "lbbuild.config.json";
+// Authoritative for the lean config UI (writeBuildConfig/setBuildField). Mirrors
+// @lb-ide/core build.js DEFAULT_BUILD — runBuild re-merges core's as a fallback,
+// so keep the two in sync (kept here too because the buildless lean app can't
+// sync-import the ESM in these synchronous config helpers). check-default-build.mjs
+// asserts they match by regex — keep the closing `};` on its own line for that check.
 const DEFAULT_BUILD = {
   entry: "",                 // "" → auto-detect (main.ts / main.js)
   format: "esm",             // esm | iife | cjs
@@ -695,24 +857,14 @@ async function build() {
     if (error) { log("✗ " + error, "e"); setStatus("build failed"); return; }
     const cfg = { ...DEFAULT_BUILD, ...(config || {}) };
     await initEsbuild();
+    const { runBuild } = await coreBuild();
     if (cfg.inlineLbInject !== false && Object.values(proj.files).some((c) => /from\s+["']lb-inject["']/.test(c))) await ensureInjectBundle();
     const entry = cfg.entry && cfg.entry in proj.files ? cfg.entry : entryPoint();
-    const sourcemap = cfg.sourcemap === true ? "inline" : (cfg.sourcemap || false);
-    const res = await esbuild.build({
-      entryPoints: [entry], bundle: true, write: false, legalComments: "none",
-      format: cfg.format || "esm", target: cfg.target || "es2022", minify: !!cfg.minify,
-      sourcemap, keepNames: !!cfg.keepNames, treeShaking: cfg.treeShaking !== false,
-      charset: cfg.charset || "utf8", define: cfg.define || {}, drop: cfg.drop || [], pure: cfg.pure || [],
-      banner: cfg.banner ? { js: cfg.banner } : undefined, footer: cfg.footer ? { js: cfg.footer } : undefined,
-      plugins: [buildPlugins(proj.files, cfg)],
-    });
-    const outJs = res.outputFiles.find((f) => !f.path.endsWith(".map")) || res.outputFiles[0];
-    const code = outJs.text;
-    const built = { name: entry.replace(/\.(ts|js)$/, "") + ".mjs", code };
-    builds.set(proj.id, built);
+    const built = await runBuild({ esbuild, files: proj.files, cfg, entry, injectBundle, debug: debugOn });
+    builds.set(proj.id, { name: built.name, code: built.code });
     syncDownloadBtn();
-    log("✓ built " + built.name + " — " + code.length + " bytes" + (cfg.minify ? " (minified)" : ""), "s");
-    for (const w of res.warnings) log("warn: " + w.text, "d");
+    log("✓ built " + built.name + " — " + built.code.length + " bytes" + (cfg.minify ? " (minified)" : "") + (debugOn ? " (inline source map)" : ""), "s");
+    for (const w of built.warnings) log("warn: " + w.text, "d");
     setStatus("build ok");
   } catch (e) {
     const errs = (e && e.errors) || [];
@@ -781,6 +933,7 @@ async function importFiles(fileList) {
 function hidePop() { const p = $("pop"); p.style.display = "none"; p.innerHTML = ""; document.removeEventListener("mousedown", popDismiss, true); }
 function popDismiss(e) { const p = $("pop"); if (!p.contains(e.target)) hidePop(); }
 function showPop(anchor, build) {
+  document.removeEventListener("mousedown", popDismiss, true); // drop any prior listener (reopen without hidePop won't leak)
   const p = $("pop"); p.innerHTML = ""; build(p); p.style.display = "block";
   const r = anchor.getBoundingClientRect();
   p.style.left = Math.max(6, Math.min(r.left, window.innerWidth - p.offsetWidth - 8)) + "px";
@@ -827,12 +980,21 @@ require(["vs/editor/editor.main"], async () => {
     fetch("templates.json").then((r) => r.json()).then((d) => d.categories),
     fetch("lb-inject.d.ts").then((r) => r.text()),
   ]);
-  const bundle = await fetch("typings-bundle.json").then((r) => r.json());
-  baseExtraLibs = Object.entries(bundle).map(([p, content]) => ({ content, filePath: "file:///" + p }));
-  baseExtraLibs.push({ content: INJECT_DTS, filePath: "file:///node_modules/@types/lb-inject/index.d.ts" });
-  // `log(...)` is injected by the in-client host into REPL snippets — it streams
-  // output live (incl. from async callbacks) to the REPL panel.
-  baseExtraLibs.push({ content: "/** REPL/in-client only: stream a value to the live REPL log panel. */\ndeclare function log(...args: any[]): void;", filePath: "file:///node_modules/@types/lb-repl/index.d.ts" });
+  // Pull the default source's published templates (editor-fetch, stripped) — non-blocking;
+  // the New menu picks them up once they arrive. Works with or without a bridge.
+  fetchTemplateSource().then((r) => { if (r.ok && r.count) log("fetched " + r.count + " template(s) from " + TEMPLATE_SOURCE.name, "d"); });
+  // host-API bridge client (shared @lb-ide/core) — created once for /api/* calls.
+  bridge = (await import("./lb-ide-core/bridge.js")).createBridge({ base: BASE, token: API_TOKEN });
+  // typings closure + the lean (setExtraLibs) adapter live in @lb-ide/core; the
+  // heavy editor uses the same closure via the build-time barrel (gen-barrel.mjs).
+  const { getClosure, toExtraLibs } = await import("./lb-ide-core/typings.js");
+  const closure = await getClosure("typings-bundle.json");
+  baseExtraLibs = toExtraLibs(closure, [
+    { content: INJECT_DTS, filePath: "file:///node_modules/@types/lb-inject/index.d.ts" },
+    // `log(...)` is injected by the in-client host into REPL snippets — it streams
+    // output live (incl. from async callbacks) to the REPL panel.
+    { content: "/** REPL/in-client only: stream a value to the live REPL log panel. */\ndeclare function log(...args: any[]): void;", filePath: "file:///node_modules/@types/lb-repl/index.d.ts" },
+  ]);
   configureTS(monaco.languages.typescript.typescriptDefaults, false);
   configureTS(monaco.languages.typescript.javascriptDefaults, true);
 
@@ -1001,7 +1163,7 @@ require(["vs/editor/editor.main"], async () => {
       if (!(r.ok && (await r.json()).ok)) return;
       bridgeOn = true;
       $("sbBridge").style.display = "";
-      $("runClient").style.display = ""; $("autoRun").style.display = ""; $("dbg").style.display = ""; $("replBtn").style.display = "";
+      $("runClient").style.display = ""; $("autoRun").style.display = ""; $("dbg").style.display = ""; $("replBtn").style.display = ""; $("openHeavy").style.display = "";
       log("connected to LiquidBounce (in-client) — projects persist on disk; run/hot-reload/debug enabled", "d");
       // pull any projects saved on disk (durable across CEF sessions) into the tabs
       try {
@@ -1012,6 +1174,7 @@ require(["vs/editor/editor.main"], async () => {
         }
         if (added) { await saveMeta(); renderTabs(); log("restored " + added + " project(s) from disk", "d"); }
       } catch { /* */ }
+      await refreshTemplates();  // pull user/fetched templates into the New menu
     } catch { /* not in-client */ }
   })();
   async function loadToClient() {
@@ -1025,6 +1188,24 @@ require(["vs/editor/editor.main"], async () => {
     } else log("✗ load failed: " + (res.error || "?"), "e");
   }
   $("runClient").onclick = async () => { $("runClient").disabled = true; try { await loadToClient(); } catch (e) { log("✗ run-in-client failed: " + (e && e.message || e), "e"); } finally { $("runClient").disabled = false; } };
+
+  // Open the current project in the heavy (full VS Code) editor. Persists it to
+  // the host first (the heavy editor sources the SAME project from the bridge via
+  // /api/projects), then opens the heavy host with ?project=<id>. The heavy URL is
+  // configurable (localStorage "lb-ide:heavyUrl"); prompts once if unset.
+  $("openHeavy").onclick = async () => {
+    if (!proj) return;
+    let heavy = (localStorage.getItem("lb-ide:heavyUrl") || "").trim();
+    if (!heavy) { heavy = (prompt("Heavy editor URL:", "http://localhost:9900") || "").trim(); if (!heavy) return; localStorage.setItem("lb-ide:heavyUrl", heavy); }
+    // Only navigate to an http(s) origin (reject javascript:/data: and other schemes).
+    let heavyOrigin; try { heavyOrigin = new URL(heavy); } catch { log("✗ invalid heavy editor URL", "e"); return; }
+    if (heavyOrigin.protocol !== "http:" && heavyOrigin.protocol !== "https:") { log("✗ heavy editor URL must be http(s)", "e"); return; }
+    try { const r = await apiFetch("api/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(proj) }); if (!r.ok) throw new Error("HTTP " + r.status); }
+    catch (e) { log("✗ couldn't persist project to host before opening heavy: " + (e && e.message || e), "e"); return; }
+    const url = heavy.replace(/\/+$/, "") + "/?project=" + encodeURIComponent(proj.id);
+    log("opening in heavy editor: " + url, "d");
+    window.open(url, "_blank");
+  };
 
   // hot reload: rebuild + reload in client on edits (debounced) when enabled
   hotReloadFn = () => { clearTimeout(hotTimer); hotTimer = setTimeout(() => { if (autoRun && bridgeOn) loadToClient().catch(() => {}); }, 900); };

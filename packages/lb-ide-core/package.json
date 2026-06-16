@@ -1,0 +1,15 @@
+{
+  "name": "@lb-ide/core",
+  "version": "0.1.0",
+  "description": "Shared LB script-IDE pipeline (Java.type rewrite, esbuild-wasm build, ScriptManager bridge, @wunk typings adapters) consumed by both the lean Monaco editor and the heavy vscode-web editor. Plain browser-loadable ESM, no bundler required.",
+  "type": "module",
+  "exports": {
+    "./build": "./src/build.js",
+    "./build-plugin": "./src/build-plugin.js",
+    "./bridge": "./src/bridge.js",
+    "./typings": "./src/typings.js",
+    "./templates": "./src/templates.js"
+  },
+  "license": "GPL-3.0-or-later",
+  "author": "obus-globus"
+}

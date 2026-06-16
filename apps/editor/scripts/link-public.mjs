@@ -10,6 +10,8 @@ const links = [
   ["node_modules/monaco-editor/min/vs", "public/vs"],
   ["node_modules/esbuild-wasm/lib/browser.min.js", "public/esbuild.js"],
   ["node_modules/esbuild-wasm/esbuild.wasm", "public/esbuild.wasm"],
+  // shared @lb-ide/core ESM, consumed by the (buildless) lean editor via dynamic import()
+  ["../../packages/lb-ide-core/src", "public/lb-ide-core"],
 ];
 for (const [target, linkRel] of links) {
   const link = path.join(app, linkRel);

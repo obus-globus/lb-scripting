@@ -1,0 +1,9 @@
+{
+  "name": "lb-fs",
+  "publisher": "obus",
+  "version": "0.0.1",
+  "engines": { "vscode": "^1.90.0" },
+  "browser": "./dist/extension.js",
+  "activationEvents": ["onFileSystem:lbfs"],
+  "contributes": {}
+}
