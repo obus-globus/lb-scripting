@@ -16,12 +16,34 @@ isolation headers. `server.mjs` is the dev harness only.
    with the headers.
 2. **HTTPS** (TLS terminates upstream/Cloudflare for us; Cloudflare preserves the
    COI headers — verified).
-3. **Path-prefix routing** is fine for COI, but VS Code **webview isolation** ideally
-   wants webviews on their own subdomain (a `{{uuid}}.` wildcard origin). Under a
-   shared domain + path that isn't available (Cloudflare free certs don't cover
-   sub-subdomains), so webview-based UI (e.g. the Welcome walkthrough) may not
-   isolate. The core editor (tsserver + our extensions) uses no webviews and is
-   unaffected. Revisit with a dedicated subdomain if webviews are needed.
+3. **Webview origin isolation (SECURITY).** A VS Code webview must run on a **distinct
+   origin** from the workbench: a same-origin webview inherits the editor's trust — it
+   could read `/lb/config` + the bridge token and **passes the bridge's WS `Origin`
+   check**, i.e. drive the bridge → run code in the client. The build keeps them
+   distinct: `webEndpointUrlTemplate` is a `{{uuid}}.<host>` subdomain by default (or
+   `LB_WEBVIEW_ORIGIN` if set), never the workbench origin.
+   - **Invariants (verified on the local Java server):** `/lb/config` is served with
+     **no `Access-Control-Allow-Origin`** → a cross-origin webview's `fetch` is
+     browser-blocked; and the WS handshake **rejects** any Origin not in the allowlist
+     (a `{{uuid}}.localhost:PORT` webview origin → `403`). **Operator rule: NEVER add a
+     webview origin to the bridge `--origins` allowlist.**
+   - **Local pure-Java server:** the `{{uuid}}.localhost:<port>` subdomain is a distinct
+     origin (Chrome resolves `*.localhost` → loopback), served by the same process; the
+     WS allowlist (the workbench origin only) rejects it. No extra config needed.
+   - **Hosted (NEEDS scorpion — DNS + cert):** under the shared domain + path, the
+     default `{{uuid}}.cb.2d.rocks` is a **sub-subdomain Cloudflare's free cert doesn't
+     cover** → webviews fail to load (cert error). They stay isolated (distinct origin,
+     no cert) but webview-based UI (e.g. the Welcome walkthrough) won't render. The core
+     editor (tsserver + our extensions) uses **no webviews** and is unaffected. To enable
+     webviews: provision a **dedicated webview origin** — either a wildcard cert
+     (`*.cb.2d.rocks`) for the per-webview `{{uuid}}.` model, or a **single dedicated
+     subdomain** (e.g. `cbwebview.2d.rocks`, covered by a `*.2d.rocks` cert if one
+     exists) — then build with `LB_WEBVIEW_ORIGIN=https://{{uuid}}.cbwebview.2d.rocks`
+     (or `https://cbwebview.2d.rocks` for the single-origin fallback) and add a Caddy
+     site/route for it that serves the SAME `dist/` with the COI headers. **This route
+     must NOT serve `/lb/config` or `/api` with CORS, and its origin must NOT be in the
+     bridge `--origins`.** ⚠ The DNS record + TLS cert for that subdomain are upstream
+     (Proxmox-host Caddy / Cloudflare) — **scorpion to provision before this can ship.**
 
 ## Build the static bundle
 

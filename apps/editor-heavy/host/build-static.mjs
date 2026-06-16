@@ -78,14 +78,26 @@ const html = `<!DOCTYPE html>
   <script>
     // Origin-agnostic: fill the workbench/webview origins from where we're actually
     // served, so the same static build works on localhost and the deploy domain.
+    //
+    // SECURITY (webview isolation): webviews MUST run on a DISTINCT origin from the
+    // workbench — a same-origin webview would inherit the editor's trust (read
+    // /lb/config + the bridge token, and pass the bridge's WS Origin check → drive the
+    // client). LB_WEBVIEW_ORIGIN (baked below) lets a deploy pin a dedicated webview
+    // origin (e.g. a wildcard-cert subdomain "https://{{uuid}}.webview.example.com",
+    // or a single dedicated "https://webview.example.com"). Default: a {{uuid}}.<host>
+    // subdomain — distinct from <host>; works on *.localhost in dev, but on a shared
+    // domain the sub-subdomain needs a matching wildcard cert (see DEPLOY.md).
     (function () {
       var el = document.getElementById('vscode-workbench-web-configuration');
       var cfg = JSON.parse(el.getAttribute('data-settings'));
       var scheme = location.protocol.replace(':', ''), authority = location.host, base = ${JSON.stringify(BASE)};
+      var WEBVIEW_ORIGIN = ${JSON.stringify(process.env.LB_WEBVIEW_ORIGIN || "")};
       (cfg.developmentOptions && cfg.developmentOptions.extensions || []).forEach(function (e) { e.scheme = scheme; e.authority = authority; });
       (cfg.additionalBuiltinExtensions || []).forEach(function (e) { e.scheme = scheme; e.authority = authority; });
-      cfg.productConfiguration.webEndpointUrlTemplate = scheme + '://{{uuid}}.' + authority + base;
-      cfg.productConfiguration.webviewContentExternalBaseUrlTemplate = scheme + '://{{uuid}}.' + authority + base + '/out/vs/workbench/contrib/webview/browser/pre/';
+      // configured dedicated origin, else the {{uuid}}.<host> subdomain (still distinct).
+      var wvBase = WEBVIEW_ORIGIN || (scheme + '://{{uuid}}.' + authority);
+      cfg.productConfiguration.webEndpointUrlTemplate = wvBase + base;
+      cfg.productConfiguration.webviewContentExternalBaseUrlTemplate = wvBase + base + '/out/vs/workbench/contrib/webview/browser/pre/';
       el.setAttribute('data-settings', JSON.stringify(cfg));
     })();
     const baseUrl = new URL('${BASE}' || '/', window.location.origin).toString();

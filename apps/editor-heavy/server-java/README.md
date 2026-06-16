@@ -15,7 +15,10 @@ GraalJS-script socket server cannot:
 
 - **WS Origin allowlist** — the handshake rejects any `Origin` not configured
   (`--origins`). Without this, any website could open a socket to the user's
-  localhost and run code in their client (cross-site WS hijacking).
+  localhost and run code in their client (cross-site WS hijacking). **Only the
+  workbench origin(s) go here — NEVER the webview origin** (the `{{uuid}}.<host>`
+  subdomain): webviews must stay outside the allowlist so a compromised webview
+  can't drive the bridge. (Verified: a `{{uuid}}.localhost:PORT` Origin → `403`.)
 - **Token** — every `/api` request and the WS `hello` frame must carry the
   per-session token (`X-IDE-Token` header / `{t:"hello",token}`). The token is
   never put in a URL.
