@@ -13,7 +13,10 @@ export const DEFAULT_BUILD = {
   format: "esm",             // esm | iife | cjs
   target: "es2022",          // es2017 … es2022 | esnext
   minify: false,
-  sourcemap: false,          // false | true (=inline) | "inline" | "external"
+  sourcemap: false,          // false | true → INLINE. external/linked are coerced to inline:
+                             // runBuild uses write:false (no output path), and esbuild rejects
+                             // an external map there + a separate .map would be lost on load.
+                             // Build-and-Debug forces inline regardless (so TS breakpoints bind).
   keepNames: false,
   treeShaking: true,
   charset: "utf8",           // utf8 | ascii
@@ -34,13 +37,18 @@ export function resolveEntry(files, cfg = {}) {
 
 /**
  * Bundle a project to a single `.mjs`.
- * @param {{esbuild:any, files:Record<string,string>, cfg?:object, entry?:string, injectBundle?:string}} o
+ * @param {{esbuild:any, files:Record<string,string>, cfg?:object, entry?:string, injectBundle?:string, debug?:boolean}} o
+ *   debug: force an inline source map (TS→.mjs) so a client-side inspector binds breakpoints to source.
  * @returns {Promise<{name:string, code:string, warnings:any[]}>}
  */
-export async function runBuild({ esbuild, files, cfg = {}, entry, injectBundle = "" }) {
+export async function runBuild({ esbuild, files, cfg = {}, entry, injectBundle = "", debug = false }) {
   const c = { ...DEFAULT_BUILD, ...cfg };
   const ep = entry || resolveEntry(files, c);
-  const sourcemap = c.sourcemap === true ? "inline" : (c.sourcemap || false);
+  // Only INLINE source maps survive our write:false, single-artifact load path: esbuild
+  // rejects "external"/"linked" with no output path, and a standalone .map would be dropped
+  // (the load path ships one .mjs string). So any sourcemap request — and always for debug —
+  // becomes inline, keeping the map embedded so TS breakpoints can bind in the client.
+  const sourcemap = (debug || c.sourcemap) ? "inline" : false;
   const res = await esbuild.build({
     entryPoints: [ep], bundle: true, write: false, legalComments: "none",
     format: c.format || "esm", target: c.target || "es2022", minify: !!c.minify,

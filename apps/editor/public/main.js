@@ -720,7 +720,7 @@ async function build() {
     const { runBuild } = await coreBuild();
     if (cfg.inlineLbInject !== false && Object.values(proj.files).some((c) => /from\s+["']lb-inject["']/.test(c))) await ensureInjectBundle();
     const entry = cfg.entry && cfg.entry in proj.files ? cfg.entry : entryPoint();
-    const built = await runBuild({ esbuild, files: proj.files, cfg, entry, injectBundle });
+    const built = await runBuild({ esbuild, files: proj.files, cfg, entry, injectBundle, debug: debugOn });
     builds.set(proj.id, { name: built.name, code: built.code });
     syncDownloadBtn();
     log("✓ built " + built.name + " — " + built.code.length + " bytes" + (cfg.minify ? " (minified)" : ""), "s");

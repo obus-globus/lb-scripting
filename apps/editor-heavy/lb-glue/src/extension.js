@@ -57,7 +57,8 @@ function getBridge() {
 let hotTimer = null;
 
 // Build the workspace to a single .mjs via @lb-ide/core (shared by run/hot-reload/debug).
-async function buildWorkspace(context, ch) {
+// `debug` forces an inline source map so the client inspector can bind TS breakpoints.
+async function buildWorkspace(context, ch, { debug = false } = {}) {
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || !folders.length) throw new Error("no workspace folder open");
   const [files] = await Promise.all([readWorkspaceFiles(folders[0].uri), initEsbuild(context)]);
@@ -67,15 +68,36 @@ async function buildWorkspace(context, ch) {
   const bcfg = { ...DEFAULT_BUILD, ...projCfg };
   let injectBundle = "";
   if (bcfg.inlineLbInject !== false && Object.values(files).some((c) => /from\s+["']lb-inject["']/.test(c))) injectBundle = await readAsset(context, "lb-inject-bundled.js");
-  const built = await runBuild({ esbuild, files, cfg: bcfg, injectBundle });
-  ch.appendLine(`built ${built.name} - ${built.code.length} bytes`);
+  const built = await runBuild({ esbuild, files, cfg: bcfg, injectBundle, debug });
+  ch.appendLine(`built ${built.name} - ${built.code.length} bytes` + (debug ? " (inline source map)" : ""));
   return built;
+}
+
+// Write .vscode/launch.json with an attach config to the GraalJS inspector. The
+// sourceMapPathOverrides maps the inline map's `vfs:<rel>` sources back to the
+// workspace's .ts/.js files so editor breakpoints bind to source, not compiled JS.
+async function writeDebugAttachConfig(folderUri, port, ch) {
+  const config = {
+    version: "0.2.0",
+    configurations: [{
+      type: "node", request: "attach", name: `LB: Attach to client (:${port})`,
+      address: "localhost", port, continueOnAttach: true, sourceMaps: true,
+      // esbuild emits sources as "vfs:<relpath>" (the build plugin's vfs namespace);
+      // ${workspaceFolder} is the lbfs:// project root, so this lands on the editor files.
+      sourceMapPathOverrides: { "vfs:*": "${workspaceFolder}/*" },
+    }],
+  };
+  const uri = vscode.Uri.joinPath(folderUri, ".vscode", "launch.json");
+  try {
+    await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(JSON.stringify(config, null, 2)));
+    ch.appendLine("wrote " + uri.toString() + " (attach :" + port + ", sourceMapPathOverrides vfs:* → workspace)");
+  } catch (e) { ch.appendLine("could not write launch.json: " + (e && e.message || e)); }
 }
 
 // Build + load into the client. `debug` loads with the GraalJS inspector.
 async function buildAndLoad(context, ch, { debug = false, quiet = false } = {}) {
   let built;
-  try { built = await buildWorkspace(context, ch); }
+  try { built = await buildWorkspace(context, ch, { debug }); }
   catch (e) {
     const errs = (e && e.errors) || [];
     if (errs.length) for (const er of errs) ch.appendLine("✗ " + (er.location ? er.location.file + ": " : "") + er.text);
@@ -88,9 +110,18 @@ async function buildAndLoad(context, ch, { debug = false, quiet = false } = {}) 
   try {
     const res = await bridge.load({ name: built.name.replace(/\.mjs$/, ""), mjs: built.code, debug, userGesture: true });
     ch.appendLine("host load → " + JSON.stringify(res));
-    if (!quiet) {
-      if (debug && res && res.debugPort) vscode.window.showInformationMessage(`LB: loaded ${built.name} with inspector on :${res.debugPort} — attach via chrome://inspect or a VS Code attach config.`);
-      else vscode.window.showInformationMessage(`LB: loaded ${built.name} → ${JSON.stringify(res)}`);
+    if (debug && res && res.debugPort) {
+      // Auto-configure a VS Code attach so editor breakpoints bind to the TS source
+      // (the .mjs carries an inline map; the override maps its sources to the workspace).
+      // We WRITE the attach config but don't auto-start it: vscode-web's browser
+      // ext-host has no node debug adapter (startDebugging would pop "debug type
+      // 'node' is not supported"). The user starts "LB: Attach to client" from the
+      // Run & Debug view in a client that has a CDP/node adapter (the GraalJS inspector).
+      const folders = vscode.workspace.workspaceFolders;
+      if (folders && folders.length) await writeDebugAttachConfig(folders[0].uri, res.debugPort, ch);
+      if (!quiet) vscode.window.showInformationMessage(`LB: loaded ${built.name} with inspector on :${res.debugPort}. Wrote .vscode/launch.json ("LB: Attach to client") mapping breakpoints to your .ts. Start it from Run & Debug — the attach→breakpoint loop needs a real client (GraalJS inspector); vscode-web has no debug adapter.`);
+    } else if (!quiet) {
+      vscode.window.showInformationMessage(`LB: loaded ${built.name} → ${JSON.stringify(res)}`);
     }
   } catch (e) { ch.appendLine("host load failed: " + (e && e.message || e)); if (!quiet) vscode.window.showErrorMessage("LB load failed: " + (e && e.message || e)); }
 }
