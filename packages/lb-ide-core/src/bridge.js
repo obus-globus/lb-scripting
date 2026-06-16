@@ -91,6 +91,8 @@ function createWsBridge({ base = "", token = "", WebSocketImpl } = {}) {
     base, token, transport: "ws",
     ping: () => send("ping"),
     projects: () => send("projects"),
+    scripts: () => send("scripts"),
+    script: (name) => send("script", { name }),
     save: (project) => send("save", { project }),
     load: ({ name, mjs, debug, userGesture }) => send("load", { name, mjs, debug, userGesture }),
     repl: (code, opts = {}) => send("repl", { code, userGesture: opts.userGesture }),

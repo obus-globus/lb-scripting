@@ -500,7 +500,8 @@ function showTemplateMenu() {
 // "Open" menu: a cascading picker (mirrors showTemplateMenu) with two categories —
 // Projects (your editable IDE projects, the local/bridge-synced sources) and
 // Installed scripts (the LiquidBounce scripts/ folder, via the bridge). Anchored to
-// the "open �myproj" button; lives in the SAME tmplMenu/tmplSub DOM.
+// the "open" button; lives in the SAME tmplMenu/tmplSub DOM.
+let openMenuGen = 0; // submenu generation: a later hover invalidates an in-flight async fill
 function showOpenMenu() {
   const menu = $("tmplMenu"), sub = $("tmplSub"); menu.innerHTML = ""; sub.style.display = "none";
   const positionSub = (rowEl) => {
@@ -522,10 +523,12 @@ function showOpenMenu() {
   };
   // Projects category: switch to any open project other than the current one.
   const openProjects = async (rowEl) => {
+    const gen = ++openMenuGen;
     activate(rowEl); sub.innerHTML = ""; sub.appendChild(subItem("loading…", "", () => {}));
     positionSub(rowEl);
     const others = meta.ids.filter((id) => id !== meta.current);
     const names = await Promise.all(others.map((id) => dbGet(P_STORE, id).then((p) => (p && p.name) || id).catch(() => id)));
+    if (gen !== openMenuGen) return; // a newer hover took over
     sub.innerHTML = "";
     if (!others.length) sub.appendChild(subItem("(no other projects)", "", () => {}));
     else others.forEach((id, i) => sub.appendChild(subItem(names[i], "switch project", () => loadProject(id))));
@@ -534,10 +537,12 @@ function showOpenMenu() {
   // Installed scripts category: list the scripts/ folder via the bridge, open one
   // as an editable single-file project (unchanged behavior).
   const openInstalled = async (rowEl) => {
+    const gen = ++openMenuGen;
     activate(rowEl); sub.innerHTML = ""; sub.appendChild(subItem("loading…", "", () => {}));
     positionSub(rowEl);
     let names = [];
     try { names = (bridge ? await bridge.scripts() : await apiFetch("api/scripts").then((r) => r.json())) || []; } catch { /* */ }
+    if (gen !== openMenuGen) return; // a newer hover took over
     sub.innerHTML = "";
     if (!names.length) sub.appendChild(subItem("(no installed scripts)", "", () => {}));
     else for (const name of names) {
