@@ -493,7 +493,12 @@ function showTemplateMenu() {
     sub.innerHTML = "";
     const add = (title, desc, onClick) => {
       const it = document.createElement("div"); it.className = "item";
-      it.innerHTML = "<div><b>" + title + "</b>" + (desc ? "<span>" + desc + "</span>" : "") + "</div>";
+      // textContent (not innerHTML): user/fetched template names/descriptions are
+      // untrusted strings — must not be injected as HTML.
+      const wrap = document.createElement("div");
+      const b = document.createElement("b"); b.textContent = title; wrap.appendChild(b);
+      if (desc) { const s = document.createElement("span"); s.textContent = desc; wrap.appendChild(s); }
+      it.appendChild(wrap);
       it.onclick = () => { hideTemplateMenu(); onClick(); };
       sub.appendChild(it);
     };
@@ -522,8 +527,37 @@ function showTemplateMenu() {
     row.onclick = () => openSub(cat, row);
     menu.appendChild(row);
   }
+  // Save-as-template (create-own): turn the current project into a reusable user
+  // template on the bridge. Only when connected (templates live on the host).
+  if (bridgeOn) {
+    const sep = document.createElement("div"); sep.className = "sep"; menu.appendChild(sep);
+    const row = document.createElement("div"); row.className = "row";
+    const label = document.createElement("span"); label.textContent = "Save current as template…"; row.appendChild(label);
+    row.onmouseenter = () => { sub.style.display = "none"; [...menu.querySelectorAll(".row")].forEach((r) => r.classList.remove("active")); };
+    row.onclick = () => { hideTemplateMenu(); saveCurrentAsTemplate(); };
+    menu.appendChild(row);
+  }
   const r = $("newProj").getBoundingClientRect();
   menu.style.left = Math.max(6, r.left) + "px"; menu.style.top = r.bottom + 4 + "px"; menu.style.display = "block";
+}
+
+// Save-as-template (create-own): build a template doc from the current project's
+// files and persist it to the bridge (lb-ide/templates/). Clone-and-modify is the
+// inverse + already covered: creating a project from any template in the New menu
+// clones its files into an editable project.
+async function saveCurrentAsTemplate() {
+  if (!proj) return;
+  if (!bridge || !bridgeOn) { log("save as template needs a connected client", "e"); return; }
+  const name = (prompt("Template name:", proj.name) || "").trim();
+  if (!name) return;
+  const id = name.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || ("tpl-" + Date.now().toString(36));
+  const lang = Object.keys(proj.files).some((f) => f.endsWith(".ts")) ? "ts" : "js";
+  const doc = { id, name, description: "saved from project", lang, base: { files: { ...proj.files } }, examples: [], aux: (proj.aux || []).slice(), origin: "user", createdAt: Date.now(), updatedAt: Date.now() };
+  try {
+    const res = await bridge.saveTemplate(doc);
+    if (res && res.ok) { await refreshTemplates(); log("✓ saved template '" + name + "' (id " + (res.id || id) + ")", "s"); }
+    else log("✗ save template failed", "e");
+  } catch (e) { log("✗ save template failed: " + (e && e.message || e), "e"); }
 }
 
 // "Open" menu: a cascading picker (mirrors showTemplateMenu) with two categories —
