@@ -10,6 +10,15 @@ Status: **building v1** per the decisions below. Companion to
   The **untrusted-source malicious-code warning UX is the gate** that must land before
   custom repos are ever exposed — designed for, not shipped. v1 contacts only the one
   default source.
+  - **Deferred hardening required before that gate (from the Step-4 security review):**
+    (1) the strip is a denylist that today aligns with the build's exact-key read —
+    already normalized (case/trailing-dots/backslash) so it can't drift, but for
+    untrusted sources also consider an allowlist of file types; (2) a **fetched
+    template must NOT be allowed to shadow a bundled `id`** (a malicious source could
+    replace `default-ts`) — v1's trusted CI source intentionally shadows-to-update, so
+    this restriction is untrusted-only; (3) content is code — the strip checks paths,
+    not bodies, so an untrusted `main.ts` body still reaches build+run (inherent;
+    the warning UX + no-auto-run are the mitigations).
 - **Default source = a configurable constant**, placeholder URL until scorpion supplies
   the real one (our deploy's published `templates.json`, or a GitHub repo). Trivial to set.
 - **Editor-fetch only** — no host-fetch in v1 → **zero SSRF surface** (§3.3 guard is

@@ -7,6 +7,10 @@ name: publish templates.json
 
 on:
   push:
+    # feat/dual-mode-ide is included only for in-development testing (the editor's
+    # TEMPLATE_SOURCE points at this branch). POST-MERGE: drop the feature branch so
+    # publishing happens only from master, and gate templates/ changes behind PR
+    # review / CODEOWNERS (the live-fetched URL must not be writable without review).
     branches: [master, feat/dual-mode-ide]
     paths:
       - "templates/**"

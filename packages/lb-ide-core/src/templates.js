@@ -10,9 +10,13 @@
 //   - dotfiles (`.npmrc`, `.gitignore`, …).
 // Pure, no globals — shared by lean now and heavy later.
 
-/** True if a project-relative path must be stripped from an imported template. */
+/** True if a project-relative path must be stripped from an imported template.
+ *  Normalizes each segment (lowercase; split on / AND \; strip trailing dots/spaces)
+ *  so the denylist can't be evaded by case or path tricks (LBBUILD.CONFIG.JSON,
+ *  .VSCODE, "lbbuild.config.json.", backslash separators) and doesn't silently drift
+ *  from the build's key matching — the foundation before any untrusted source ships. */
 export function isUnsafeTemplatePath(p) {
-  const segs = String(p).split("/");
+  const segs = String(p).split(/[\\/]/).map((s) => s.toLowerCase().replace(/[.\s]+$/, ""));
   const base = segs[segs.length - 1];
   if (base === "lbbuild.config.json") return true;     // build-config injection (banner/footer/define)
   if (base.startsWith(".")) return true;               // dotfiles (.npmrc, .gitignore, …)
