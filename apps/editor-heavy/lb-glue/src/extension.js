@@ -78,7 +78,8 @@ export function activate(context) {
       const base = cfg.get("hostBase", "");
       if (base) {
         const bridge = createBridge({ base, token: cfg.get("hostToken", "") });
-        const res = await bridge.load({ name: built.name.replace(/\.mjs$/, ""), mjs: built.code, debug: false });
+        // buildAndRun is an explicit user command → userGesture (the server gates load on it).
+        const res = await bridge.load({ name: built.name.replace(/\.mjs$/, ""), mjs: built.code, debug: false, userGesture: true });
         ch.appendLine(`[lb-glue] host load → ${JSON.stringify(res)}`);
         vscode.window.showInformationMessage(`LB-GLUE-OK: loaded ${built.name} → host ${JSON.stringify(res)}`);
       } else {

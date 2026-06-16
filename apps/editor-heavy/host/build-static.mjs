@@ -40,9 +40,10 @@ for (const [src, dst] of [["lb-glue", "devext"], ["lb-fs", "fsext"]]) {
 // 3) typings (the generated barrel).
 cpSync(path.join(HERE, "typings"), path.join(OUT, "typings"), { recursive: true });
 
-// 4) static config + demo project (no live bridge → read-only).
+// 4) static config + demo project. LB_BRIDGE_BASE wires a live bridge (e.g. a
+// ws://localhost:PORT in-client server for the hosted case); empty = read-only demo.
 mkdirSync(path.join(OUT, "lb"), { recursive: true });
-writeFileSync(path.join(OUT, "lb", "config"), JSON.stringify({ bridgeBase: "", bridgeToken: "", projectId: PROJECT_ID }));
+writeFileSync(path.join(OUT, "lb", "config"), JSON.stringify({ bridgeBase: process.env.LB_BRIDGE_BASE || "", bridgeToken: process.env.LB_BRIDGE_TOKEN || "", projectId: PROJECT_ID }));
 const demo = {
   id: PROJECT_ID, name: "Heavy Demo",
   files: {

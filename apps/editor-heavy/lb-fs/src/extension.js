@@ -68,9 +68,13 @@ class LbFs {
     ]);
     // Project source: the live ScriptManager bridge (read/write) when configured,
     // else a static read-only project baked into the deploy (no bridge yet).
+    // bridgeBase: "" = no bridge; "self" = same-origin HTTP (resolve to the absolute
+    // host root, since a relative base can't be fetched from the ext-host worker);
+    // an absolute ws(s)://… or http(s)://… is used as-is.
     let proj;
-    if (cfg.bridgeBase) {
-      const bridge = createBridge({ base: cfg.bridgeBase, token: cfg.bridgeToken, fetchImpl: (...a) => fetch(...a) });
+    const bridgeBase = cfg.bridgeBase === "self" ? root + "/" : cfg.bridgeBase;
+    if (bridgeBase) {
+      const bridge = createBridge({ base: bridgeBase, token: cfg.bridgeToken, fetchImpl: (...a) => fetch(...a) });
       const projects = await bridge.projects();
       this.bridge = bridge;
       proj = (Array.isArray(projects) ? projects : []).find((p) => p.id === wantId) || (Array.isArray(projects) ? projects[0] : null);
