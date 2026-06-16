@@ -1,4 +1,11 @@
-# Dual-Mode LB Script IDE — State & Handoff (single source of truth)
+# Dual-Mode LB Script IDE - State & Handoff
+
+> **HISTORICAL handoff record** from while the dual-mode work was in progress.
+> That work is now merged to `master`. This doc is kept for its detailed
+> how-it-works notes and the de-risking evidence (validated gates, reproduce
+> recipes). The canonical current docs are the top-level `README.md` and the
+> per-component READMEs; where this doc's "resume point" / phase status differs,
+> those win.
 
 Self-contained resume doc. A cold reader with zero prior context should be able to
 pick up from here. Companion to `docs/dual-mode-plan.md` (the longer plan; its

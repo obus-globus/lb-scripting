@@ -3,8 +3,9 @@
 A LiquidBounce script that opens our browser editor **inside the client** (CEF)
 and loads the scripts you build there straight into LiquidBounce — no alt-tab.
 
-Implements the plan in [`../docs/in-game-plan.md`](../docs/in-game-plan.md)
-(phases P0–P1). It reuses lb-nodeflow's proven CEF + in-process-server pattern.
+Implements the plan in [`../../docs/in-game-plan.md`](../../docs/in-game-plan.md)
+(phases P1-P3 done; P0 CEF/keyboard + P4 polish need a real client). It reuses
+lb-nodeflow's proven CEF + in-process-server pattern.
 
 ## How it works
 

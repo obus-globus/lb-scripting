@@ -1,11 +1,17 @@
 # Plan — open the LB Script IDE *in-game* (LiquidBounce CEF)
 
+> **HISTORICAL planning record.** The host script and bridge described here are
+> built (`apps/host/`); phases P1-P3 are done and verified headless against a mock
+> host. P0 (CEF render + keyboard) and P4 (polish) still need a real client. For
+> current status see `apps/host/README.md` and the top-level `README.md`; the
+> phase notes in §6 are the live status, the framing line below predates the build.
+
 Goal: a LiquidBounce script that opens our browser editor **inside the running
 Minecraft client** (LiquidBounce's embedded Chromium / CEF), so you can author,
 type-check, build, and **load a script into the client without alt-tabbing** —
 the same in-client-web-UI pattern lb-nodeflow uses.
 
-This is a **plan only**. Nothing here is built yet.
+(Originally a plan; most of it is now built; see the banner above and §6.)
 
 ---
 

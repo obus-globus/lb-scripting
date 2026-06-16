@@ -1,5 +1,11 @@
 # Dual-Mode LB Script IDE — Build Plan
 
+> **HISTORICAL planning record.** The dual-mode work described here is merged to
+> `master` and shipped (both modes, the shared `@lb-ide/core` pipeline, the
+> bridge + Java server). For the current state read the top-level `README.md` and
+> the per-component READMEs. This doc is kept for design history; its in-progress
+> status notes below are no longer current.
+
 Two editor modes, user-selectable, sharing one LB pipeline:
 - **Lean (default):** the existing Monaco app (`apps/editor`). Cold start ~4.5 s, ~3 MB gz JS / ~37 MB dist. No cross-origin isolation needed. Ships today.
 - **Heavy (opt-in, web-only):** real microsoft/vscode "for web" from source. Full IDE. Cold start **5.5 s** with the **ambient-barrel typings** (measured, packaged bundle), **194 MB / ~9.3 MB gz core**. Requires COI; CEF COI gate is green for the *external-server* path — **in-client (CEF) COI serving is still unsolved** (see §0 blocker 1), but heavy is **web-only for now** so COI comes from the web host (trivial).

@@ -1,5 +1,9 @@
 # Template Management — Plan (v1 SHIPPED)
 
+> **HISTORICAL planning record.** Template management v1 is merged to `master`.
+> For the current state see `README.md` (Templates) and `apps/editor/README.md`.
+> This doc is kept for the design + security rationale and the deferred-work list.
+
 Status: **v1 built (steps 1–5), reviewed, lean green, pushed.** Companion to
 `docs/dual-mode-state.md`.
 
