@@ -49,9 +49,8 @@ let INJECT_DTS = "";
 const TEMPLATE_SOURCE = {
   id: "lb-scripting",
   name: "lb-scripting",
-  // refs/heads/<branch> form handles the slash in the feature branch name; switch to main after merge.
   // Published at repo root by the gen-templates Action (outside templates/ → no trigger loop).
-  url: "https://raw.githubusercontent.com/obus-globus/lb-scripting/refs/heads/feat/dual-mode-ide/templates.json",
+  url: "https://raw.githubusercontent.com/obus-globus/lb-scripting/master/templates.json",
 };
 let injectBundle = null; // lazily fetched lb-inject runtime
 let baseExtraLibs = [];

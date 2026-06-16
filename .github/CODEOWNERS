@@ -1,0 +1,7 @@
+# The editor fetches templates.json at runtime, so changes to the template
+# sources, the generator, or the published artifact must go through review.
+/templates/ @obus-globus
+/templates.json @obus-globus
+/apps/editor/scripts/gen-templates.mjs @obus-globus
+/apps/editor/scripts/publish-templates.mjs @obus-globus
+/.github/workflows/gen-templates.yml @obus-globus
