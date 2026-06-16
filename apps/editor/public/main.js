@@ -413,7 +413,10 @@ function mergedCategories() {
   const byId = new Map(out.map((c, i) => [c.id, i]));
   for (const t of userTemplates) {
     if (!t || !t.id || !t.base || !t.base.files) continue;        // skip malformed docs
-    const entry = { ...t, examples: t.examples || [], aux: t.aux || [], _origin: t.origin || "user", _sourceId: t.sourceId };
+    // aux is an OBJECT (path→content), like bundled templates.json — createProject
+    // spreads it into files. (A project's proj.aux is an array of paths; a template's
+    // aux is the content map — don't conflate them.)
+    const entry = { ...t, examples: t.examples || [], aux: (t.aux && typeof t.aux === "object" && !Array.isArray(t.aux)) ? t.aux : {}, _origin: t.origin || "user", _sourceId: t.sourceId };
     if (byId.has(t.id)) out[byId.get(t.id)] = entry;              // shadow bundled
     else { byId.set(t.id, out.length); out.push(entry); }
   }
@@ -552,7 +555,12 @@ async function saveCurrentAsTemplate() {
   if (!name) return;
   const id = name.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || ("tpl-" + Date.now().toString(36));
   const lang = Object.keys(proj.files).some((f) => f.endsWith(".ts")) ? "ts" : "js";
-  const doc = { id, name, description: "saved from project", lang, base: { files: { ...proj.files } }, examples: [], aux: (proj.aux || []).slice(), origin: "user", createdAt: Date.now(), updatedAt: Date.now() };
+  // Split into source files (base.files) and aux files (aux as a path→content OBJECT,
+  // matching the bundled template shape so createProject reconstructs the project).
+  const auxPaths = new Set(proj.aux || []);
+  const baseFiles = {}, auxObj = {};
+  for (const [p, c] of Object.entries(proj.files)) (auxPaths.has(p) ? auxObj : baseFiles)[p] = c;
+  const doc = { id, name, description: "saved from project", lang, base: { files: baseFiles }, examples: [], aux: auxObj, origin: "user", createdAt: Date.now(), updatedAt: Date.now() };
   try {
     const res = await bridge.saveTemplate(doc);
     if (res && res.ok) { await refreshTemplates(); log("✓ saved template '" + name + "' (id " + (res.id || id) + ")", "s"); }

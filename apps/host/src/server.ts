@@ -261,6 +261,7 @@ export function startServer(opts: ServerOpts): boolean {
           const tmpl = JSON.parse(body) as { id?: unknown };
           const id = tplId(tmpl.id);
           if (!id) { writeText(outs, 400, "Bad Request", MIME.json, JSON.stringify({ ok: false })); sock.close(); return; }
+          tmpl.id = id; // keep the in-doc id in sync with the (sanitized) filename
           (Files.writeString as (p: unknown, s: unknown) => unknown)((templatesDir as { resolve(s: string): unknown }).resolve(id + ".json"), JSON.stringify(tmpl));
           writeText(outs, 200, "OK", MIME.json, JSON.stringify({ ok: true, id }));
         } catch { writeText(outs, 400, "Bad Request", MIME.json, JSON.stringify({ ok: false })); }

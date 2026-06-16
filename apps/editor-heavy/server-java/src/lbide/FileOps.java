@@ -31,7 +31,8 @@ final class FileOps implements Ops {
     }
 
     private static String sanitizeId(Object id) {
-        return id == null ? "" : String.valueOf(id).replaceAll("[^a-zA-Z0-9._-]", "");
+        String s = id == null ? "" : String.valueOf(id).replaceAll("[^a-zA-Z0-9._-]", "");
+        return s.matches("\\.+") ? "" : s; // reject empty / dot-only (no "."/".." artifacts)
     }
 
     @Override public Map<String, Object> ping() {
