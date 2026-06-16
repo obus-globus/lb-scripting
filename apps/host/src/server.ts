@@ -202,8 +202,8 @@ export function startServer(opts: ServerOpts): boolean {
     try { for (const p of (Files.newDirectoryStream as (d: unknown, g: string) => Iterable<unknown>)(templatesDir, "*.json")) { try { out.push(JSON.parse(String((Files.readString as (x: unknown) => unknown)(p)))); } catch { /* */ } } } catch { /* */ }
     return out;
   };
-  // template id → single safe segment (no traversal out of templatesDir)
-  const tplId = (v: unknown): string => (typeof v === "string" ? v.replace(/[^a-z0-9._-]/gi, "") : "");
+  // template id → single safe segment (no traversal out of templatesDir); reject dot-only
+  const tplId = (v: unknown): string => { const s = typeof v === "string" ? v.replace(/[^a-z0-9._-]/gi, "") : ""; return /^\.+$/.test(s) ? "" : s; };
 
   const handle = (sock: { getInputStream(): unknown; getOutputStream(): unknown; close(): void }): void => {
     try {
@@ -249,13 +249,6 @@ export function startServer(opts: ServerOpts): boolean {
       }
       // --- template store (lb-ide/templates/): list / get / save / delete ---
       if (method === "GET" && path === "/api/templates") { writeText(outs, 200, "OK", MIME.json, JSON.stringify(readTemplates())); sock.close(); return; }
-      if (method === "GET" && path === "/api/template") {
-        const id = tplId(req.query.id || "");
-        const fp = (templatesDir as { resolve(s: string): unknown }).resolve(id + ".json");
-        if (!id || !(Files.exists as (x: unknown) => boolean)(fp)) writeText(outs, 404, "Not Found", MIME.json, JSON.stringify({ ok: false }));
-        else writeText(outs, 200, "OK", MIME.json, String((Files.readString as (x: unknown) => unknown)(fp)));
-        sock.close(); return;
-      }
       if (method === "POST" && path === "/api/template/save") {
         try {
           const tmpl = JSON.parse(body) as { id?: unknown };

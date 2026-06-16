@@ -79,16 +79,6 @@ final class FileOps implements Ops {
         return out;
     }
 
-    @Override public Map<String, Object> template(String id) {
-        Map<String, Object> r = new LinkedHashMap<>();
-        String sid = sanitizeId(id);
-        if (sid.isEmpty()) { r.put("ok", false); return r; }
-        Path p = templatesDir.resolve(sid + ".json");
-        if (!Files.exists(p)) { r.put("ok", false); return r; }
-        try { return Json.obj(Json.parse(Files.readString(p))); }
-        catch (Exception e) { r.put("ok", false); r.put("error", e.getMessage()); return r; }
-    }
-
     @Override public Map<String, Object> saveTemplate(Map<String, Object> tmpl) {
         String id = sanitizeId(tmpl.get("id"));
         Map<String, Object> r = new LinkedHashMap<>();

@@ -122,7 +122,6 @@ public final class LbHeavyServer {
             case "/api/scripts": writeJsonList(out, 200, ops.scripts()); return;
             case "/api/script": writeJson(out, 200, ops.script(queryParam(head.get(":query"), "name"))); return;
             case "/api/templates": writeJsonList(out, 200, ops.templates()); return;
-            case "/api/template": writeJson(out, 200, ops.template(queryParam(head.get(":query"), "id"))); return;
             case "/api/template/save": writeJson(out, 200, ops.saveTemplate(Json.obj(Json.parse(body)))); return;
             case "/api/template/delete": writeJson(out, 200, ops.deleteTemplate(Json.str(Json.obj(Json.parse(body)).get("id")))); return;
             case "/api/save": writeJson(out, 200, ops.save(Json.obj(Json.parse(body)))); return;
@@ -218,7 +217,6 @@ public final class LbHeavyServer {
             case "scripts": return ops.scripts();
             case "script": return ops.script(Json.str(a.get("name")));
             case "templates": return ops.templates();
-            case "template": return ops.template(Json.str(a.get("id")));
             case "saveTemplate": return ops.saveTemplate(Json.obj(a.get("template")));
             case "deleteTemplate": return ops.deleteTemplate(Json.str(a.get("id")));
             case "save": return ops.save(Json.obj(a.get("project")));

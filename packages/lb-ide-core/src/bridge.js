@@ -32,18 +32,16 @@ function createHttpBridge({ base = "", token = "", fetchImpl = fetch } = {}) {
     scripts: () => json("api/scripts", { method: "GET" }),
     /** Read one installed script's text → {ok, name, content}. */
     script: (name) => json("api/script?name=" + encodeURIComponent(name), { method: "GET" }),
-    /** User/fetched template docs (list), one by id, save, delete (lb-ide/templates/). */
+    /** User/fetched template docs: list, save, delete (lb-ide/templates/). */
     templates: () => json("api/templates", { method: "GET" }),
-    template: (id) => json("api/template?id=" + encodeURIComponent(id), { method: "GET" }),
     saveTemplate: (tmpl) => post("api/template/save", tmpl),
     deleteTemplate: (id) => post("api/template/delete", { id }),
-    save: (project) => call("api/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(project) }),
+    /** Resolves to parsed JSON ({ok,id}) — same shape as the WS transport. */
+    save: (project) => post("api/save", project),
     // load/repl run code in the client; `userGesture` flags an explicit user action
     // (the server may require it). Forwarded on both transports.
     load: ({ name, mjs, debug, userGesture }) => post("api/load", { name, mjs, debug, userGesture }),
     repl: (code, opts = {}) => post("api/repl", { code, userGesture: opts.userGesture }),
-    /** URL for the live-log SSE stream (token in the query - EventSource can't set headers). */
-    replStreamUrl: () => base + "api/repl/stream?token=" + encodeURIComponent(token),
     /** Uniform stream API: open the SSE log stream, invoke cb per line; returns an unsubscribe. */
     subscribeLog: (cb) => {
       const es = new EventSource(base + "api/repl/stream?token=" + encodeURIComponent(token));
@@ -99,7 +97,6 @@ function createWsBridge({ base = "", token = "", WebSocketImpl } = {}) {
     scripts: () => send("scripts"),
     script: (name) => send("script", { name }),
     templates: () => send("templates"),
-    template: (id) => send("template", { id }),
     saveTemplate: (tmpl) => send("saveTemplate", { template: tmpl }),
     deleteTemplate: (id) => send("deleteTemplate", { id }),
     save: (project) => send("save", { project }),

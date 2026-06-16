@@ -16,7 +16,6 @@ interface Ops {
     List<Object> scripts();                                       // installed script filenames (scripts/ folder)
     Map<String, Object> script(String name);                      // {ok, name, content} | {ok:false}
     List<Object> templates();                                     // user/fetched template docs (lb-ide/templates/)
-    Map<String, Object> template(String id);                      // one template doc | {ok:false}
     Map<String, Object> saveTemplate(Map<String, Object> tmpl);   // {ok, id}
     Map<String, Object> deleteTemplate(String id);                // {ok, deleted}
     Map<String, Object> save(Map<String, Object> project);        // {ok, id}
