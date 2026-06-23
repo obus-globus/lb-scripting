@@ -864,24 +864,47 @@ function setBuildField(key, value) { const cur = { ...DEFAULT_BUILD, ...(rawBuil
 // added to / removed from Monaco's extra libs (a loaded .d.ts's `declare global`
 // always applies, so gating has to be by presence, not the `types` option).
 // registry-full (net.minecraft.*) is too large to ship — deferred to the lazy path.
-const JVM_LEVELS = ["off", "lb"];
-function jvmTypesLevel() { const v = (rawBuildConfig().config || {}).jvmTypes; return JVM_LEVELS.includes(v) ? v : "off"; }
-let _registryLibs = null; // cached registry-lb extra libs (loaded on first enable)
-function jvmExtraLibs() { return (jvmTypesLevel() === "lb" && _registryLibs) ? baseExtraLibs.concat(_registryLibs) : baseExtraLibs; }
-async function loadRegistryLibs() {
-  if (_registryLibs) return _registryLibs;
+// Opt-in JVM-typing bundles. Each is a SEPARATE artifact (a .d.ts closure delta + a
+// filtered Java.type string-literal registry) fetched only when its toggle is first
+// enabled and concatenated into Monaco's extra libs. Kept out of the default bundle
+// so the editor stays lean; opt into the namespaces a script actually reaches into.
+const JVM_BUNDLES = {
+  lb:  { label: 'Type Java.type("…") strings (LiquidBounce, net.ccbluex)', url: "typings-registry-lb.json" },
+  via: { label: 'Type Java.type("…") strings (ViaVersion / VFP, com.viaversion)', url: "typings-via.json" },
+};
+// Enabled set, from lbbuild.config.json `jvmTypes`. Back-compat: the old string form
+// ("off" | "lb") maps to [] | ["lb"]; the current form is an array of bundle keys.
+function jvmEnabled() {
+  const v = (rawBuildConfig().config || {}).jvmTypes;
+  if (Array.isArray(v)) return v.filter((k) => k in JVM_BUNDLES);
+  if (typeof v === "string" && v in JVM_BUNDLES) return [v];
+  return [];
+}
+const _bundleLibs = {}; // key -> cached extra libs (loaded on first enable)
+function jvmExtraLibs() {
+  let libs = baseExtraLibs;
+  for (const k of jvmEnabled()) if (_bundleLibs[k]) libs = libs.concat(_bundleLibs[k]);
+  return libs;
+}
+async function loadBundle(key) {
+  if (_bundleLibs[key]) return _bundleLibs[key];
   const { getClosure, toExtraLibs } = await import("./lb-ide-core/typings.js");
-  _registryLibs = toExtraLibs(await getClosure("typings-registry-lb.json"));
-  return _registryLibs;
+  _bundleLibs[key] = toExtraLibs(await getClosure(JVM_BUNDLES[key].url));
+  return _bundleLibs[key];
 }
 async function applyJvmTypes() {
   if (!window.monaco) return;
-  if (jvmTypesLevel() === "lb") { try { await loadRegistryLibs(); } catch { log("could not load LiquidBounce type registry", "e"); } }
+  for (const k of jvmEnabled()) { try { await loadBundle(k); } catch { log("could not load " + k + " type registry", "e"); } }
   const libs = jvmExtraLibs();
   monaco.languages.typescript.typescriptDefaults.setExtraLibs(libs);
   monaco.languages.typescript.javascriptDefaults.setExtraLibs(libs);
 }
-function setJvmTypes(level) { setBuildField("jvmTypes", level); applyJvmTypes(); }
+function setJvmBundle(key, on) {
+  const cur = new Set(jvmEnabled());
+  if (on) cur.add(key); else cur.delete(key);
+  setBuildField("jvmTypes", [...cur]);
+  applyJvmTypes();
+}
 let _jvmAppliedFor = null; // re-apply Monaco extra libs only when the active project changes
 
 // "Error on any" linter — per-project (lbbuild.config.json `antiAny`). TypeScript has
@@ -1201,14 +1224,18 @@ require(["vs/editor/editor.main"], async () => {
     el.appendChild(toggle("sourcemap", "Inline source map"));
     el.appendChild(toggle("keepNames", "Keep names"));
     const jsep = document.createElement("div"); jsep.className = "sep"; el.appendChild(jsep);
-    // JVM type-info — same checkbox idiom as the toggles above. Per-project. On first
-    // enable it fetches the registry-lb typings (~0.6 MB gz) and types bare
-    // Java.type("net.ccbluex...") string literals; off leaves them `any`.
-    const jlbl = document.createElement("label"); jlbl.className = "item";
-    const jcb = document.createElement("input"); jcb.type = "checkbox"; jcb.checked = jvmTypesLevel() === "lb";
-    jcb.onchange = () => { setJvmTypes(jcb.checked ? "lb" : "off"); log("JVM type info: " + (jcb.checked ? "LiquidBounce" : "off"), "d"); };
-    jlbl.appendChild(jcb); jlbl.appendChild(document.createTextNode('Type Java.type("…") strings (LiquidBounce)'));
-    el.appendChild(jlbl);
+    // JVM type-info — one checkbox per opt-in namespace bundle (same idiom as the
+    // toggles above). Per-project. On first enable each fetches its bundle (a .d.ts
+    // closure delta + filtered Java.type registry) and types bare Java.type("…")
+    // string literals for that namespace; off leaves them `any`.
+    const jvmOn = new Set(jvmEnabled());
+    for (const [key, def] of Object.entries(JVM_BUNDLES)) {
+      const jlbl = document.createElement("label"); jlbl.className = "item";
+      const jcb = document.createElement("input"); jcb.type = "checkbox"; jcb.checked = jvmOn.has(key);
+      jcb.onchange = () => { setJvmBundle(key, jcb.checked); log("JVM types [" + key + "]: " + (jcb.checked ? "on" : "off"), "d"); };
+      jlbl.appendChild(jcb); jlbl.appendChild(document.createTextNode(def.label));
+      el.appendChild(jlbl);
+    }
     // Error-on-any linter (strict): flags any-typed expressions (e.g. an untyped Java.type)
     const albl = document.createElement("label"); albl.className = "item";
     const acb = document.createElement("input"); acb.type = "checkbox"; acb.checked = antiAnyOn();
@@ -1378,8 +1405,8 @@ require(["vs/editor/editor.main"], async () => {
     setMinify: (v) => { proj.build = { ...(proj.build || {}), minify: !!v }; },
     setBuildConfig: (obj) => writeBuildConfig({ ...DEFAULT_BUILD, ...obj }),
     getBuildConfig: () => buildConfig(),
-    setJvmTypes: (level) => setJvmTypes(level),
-    jvmTypes: () => jvmTypesLevel(),
+    setJvmBundle: (key, on) => setJvmBundle(key, on),
+    jvmBundles: () => jvmEnabled(),
     setAntiAny: (v) => setAntiAny(v),
     antiAny: () => antiAnyOn(),
     anyMarkers: () => monaco.editor.getModelMarkers({ owner: ANY_MARKER_OWNER }).map((m) => ({ message: m.message, line: m.startLineNumber, col: m.startColumn })),
